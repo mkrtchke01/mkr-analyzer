@@ -1,4 +1,4 @@
-import { getPublicSnapshotUrl, supabaseRequest } from '../_lib/supabase'
+import { getPublicSnapshotUrl, supabaseRequest } from '../_lib/supabase.js'
 
 export default async function handler(request: any, response: any) {
   if (request.method !== 'GET') return response.status(405).json({ error: 'Method not allowed' })

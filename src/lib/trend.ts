@@ -1,4 +1,4 @@
-import type { Candle, Timeframe } from './bybit'
+import type { Candle, Timeframe } from './bybit.js'
 
 export type TrendDirection = 'bullish' | 'bearish' | 'flat'
 export type OverallTrend = 'strong-long' | 'strong-short' | 'flat'

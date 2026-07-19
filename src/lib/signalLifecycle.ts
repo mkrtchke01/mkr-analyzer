@@ -1,4 +1,4 @@
-import type { Candle } from './bybit'
+import type { Candle } from './bybit.js'
 
 export type PersistedSignalStatus = 'active' | 'tp1' | 'tp2' | 'stop' | 'expired' | 'ambiguous'
 export type PersistedSignalSide = 'long' | 'short'

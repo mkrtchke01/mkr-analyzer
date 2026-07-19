@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { getCandles, getMarkets, type Candle, type Timeframe } from '../../src/lib/bybit'
-import { createSignalSnapshot } from '../../src/lib/signalSnapshot'
-import { evaluateSignalCandle, type ManagedSignal } from '../../src/lib/signalLifecycle'
-import { analyzeTrend, calculateTradePlans, getOverallTrend, type TradePlan, type TrendAnalysis } from '../../src/lib/trend'
-import { isAuthorizedCronRequest, supabaseRequest, uploadSnapshot } from '../_lib/supabase'
+import { getCandles, getMarkets, type Candle, type Timeframe } from '../../src/lib/bybit.js'
+import { createSignalSnapshot } from '../../src/lib/signalSnapshot.js'
+import { evaluateSignalCandle, type ManagedSignal } from '../../src/lib/signalLifecycle.js'
+import { analyzeTrend, calculateTradePlans, getOverallTrend, type TradePlan, type TrendAnalysis } from '../../src/lib/trend.js'
+import { isAuthorizedCronRequest, supabaseRequest, uploadSnapshot } from '../_lib/supabase.js'
 
 const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
 const MAX_CONCURRENCY = 5

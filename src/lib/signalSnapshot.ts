@@ -1,5 +1,5 @@
-import type { Candle } from './bybit'
-import type { TradePlan } from './trend'
+import type { Candle } from './bybit.js'
+import type { TradePlan } from './trend.js'
 
 const escapeXml = (value: string) => value.replace(/[<>&"']/g, (symbol) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[symbol]!))
 
