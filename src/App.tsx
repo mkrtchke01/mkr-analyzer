@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PriceChart from './components/PriceChart'
 import TrendPanel from './components/TrendPanel'
-import { formatPrice, getCandles, getMarkets, getNextMarketSymbol, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
+import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
 import { analyzeTrend, calculateTradePlan, getOverallTrend, getSetupSignal, type SetupSignal, type TradePlan, type TrendAnalysis } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
@@ -29,6 +29,7 @@ export default function App() {
   const [symbol, setSymbol] = useState('BTCUSDT')
   const [timeframe, setTimeframe] = useState<Timeframe>('5m')
   const [search, setSearch] = useState('')
+  const [setupsOnly, setSetupsOnly] = useState(false)
   const [status, setStatus] = useState<'loading' | 'live' | 'offline'>('loading')
   const [currentPrice, setCurrentPrice] = useState(0)
   const [marketsError, setMarketsError] = useState(false)
@@ -123,10 +124,11 @@ export default function App() {
     }
   }, [symbol])
 
-  const visibleMarkets = useMemo(() => {
-    const query = search.trim().toUpperCase()
-    return markets.filter((market) => market.symbol.includes(query)).slice(0, 80)
-  }, [markets, search])
+  const setupSymbols = useMemo(() => new Set(Object.keys(marketSetups)), [marketSetups])
+  const visibleMarkets = useMemo(
+    () => filterMarketList(markets, search, setupSymbols, setupsOnly).slice(0, 80),
+    [markets, search, setupSymbols, setupsOnly],
+  )
 
   useEffect(() => {
     const selectNextMarket = (event: KeyboardEvent) => {
@@ -202,6 +204,11 @@ export default function App() {
           <span>⌕</span>
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Найти монету" aria-label="Найти монету" />
         </label>
+        <label className="setups-only-filter">
+          <input type="checkbox" checked={setupsOnly} onChange={(event) => setSetupsOnly(event.target.checked)} />
+          <span>Только сетапы</span>
+          <b>{Object.keys(marketSetups).length}</b>
+        </label>
         <div className="list-label"><span>ПАРА</span><span>ЦЕНА / 24Ч</span></div>
         <div className="market-list">
           {visibleMarkets.map((market) => (
@@ -211,7 +218,7 @@ export default function App() {
               <span className="market-values"><b>{market.price ? formatPrice(market.price) : '—'}</b><small className={market.change >= 0 ? 'positive' : 'negative'}>{market.change >= 0 ? '+' : ''}{market.change.toFixed(2)}%</small></span>
             </button>
           ))}
-          {!visibleMarkets.length && <div className="empty-state">Монеты не найдены</div>}
+          {!visibleMarkets.length && <div className="empty-state">{setupsOnly ? 'Открытых сетапов пока нет' : 'Монеты не найдены'}</div>}
         </div>
         <footer className="markets-footer">{marketsError ? 'Не удалось обновить список — показаны популярные пары.' : `Объём 24ч · ${formatTurnover(markets.reduce((sum, market) => sum + market.turnover, 0))}`}</footer>
       </aside>

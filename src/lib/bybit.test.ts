@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterMarkets, formatPrice, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, timeframeToBybitInterval } from './bybit'
+import { filterMarketList, filterMarkets, formatPrice, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, timeframeToBybitInterval } from './bybit'
 
 describe('Bybit market data conversion', () => {
   it('converts reverse-ordered REST klines into chronological candles', () => {
@@ -60,5 +60,18 @@ describe('Bybit market data conversion', () => {
     expect(getNextMarketSymbol(markets, 'BTCUSDT')).toBe('ETHUSDT')
     expect(getNextMarketSymbol(markets, 'SOLUSDT')).toBe('BTCUSDT')
     expect(getNextMarketSymbol([], 'BTCUSDT')).toBeUndefined()
+  })
+
+  it('shows only setup markets when the setup filter is enabled', () => {
+    const markets = [
+      { symbol: 'BTCUSDT', price: 1, change: 0, turnover: 1 },
+      { symbol: 'ETHUSDT', price: 1, change: 0, turnover: 1 },
+      { symbol: 'SOLUSDT', price: 1, change: 0, turnover: 1 },
+    ]
+    const setupSymbols = new Set(['BTCUSDT', 'SOLUSDT'])
+
+    expect(filterMarketList(markets, '', setupSymbols, true).map((market) => market.symbol)).toEqual(['BTCUSDT', 'SOLUSDT'])
+    expect(filterMarketList(markets, 'sol', setupSymbols, true).map((market) => market.symbol)).toEqual(['SOLUSDT'])
+    expect(filterMarketList(markets, '', setupSymbols, false)).toHaveLength(3)
   })
 })

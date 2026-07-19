@@ -82,6 +82,12 @@ export function filterMarkets(markets: Market[]): Market[] {
     .sort((left, right) => right.turnover - left.turnover)
 }
 
+export function filterMarketList(markets: Market[], query: string, setupSymbols: ReadonlySet<string>, setupsOnly: boolean): Market[] {
+  const normalizedQuery = query.trim().toUpperCase()
+
+  return markets.filter((market) => market.symbol.includes(normalizedQuery) && (!setupsOnly || setupSymbols.has(market.symbol)))
+}
+
 export function getNextMarketSymbol(markets: Market[], currentSymbol: string): string | undefined {
   if (!markets.length) return undefined
 
