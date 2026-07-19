@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PriceChart from './components/PriceChart'
+import LiquidationMap from './components/LiquidationMap'
 import SignalHistory from './components/SignalHistory'
 import TrendPanel from './components/TrendPanel'
 import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
@@ -213,6 +214,7 @@ export default function App() {
             <span>Источник: Bybit public market data</span>
           </footer>
         </section>
+        <LiquidationMap symbol={symbol} currentPrice={currentPrice} />
         <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} tradePlan={tradePlan} />
         <SignalHistory openSignals={savedOpenSignals} onSelectSymbol={setSymbol} />
       </section>
