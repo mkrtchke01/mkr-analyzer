@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterMarkets, formatPrice, klineEventToCandle, klineRowsToCandles, timeframeToBybitInterval } from './bybit'
+import { filterMarkets, formatPrice, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, timeframeToBybitInterval } from './bybit'
 
 describe('Bybit market data conversion', () => {
   it('converts reverse-ordered REST klines into chronological candles', () => {
@@ -47,5 +47,17 @@ describe('Bybit market data conversion', () => {
     ])
 
     expect(markets.map((market) => market.symbol)).toEqual(['BTCUSDT', 'ETHUSDT'])
+  })
+
+  it('selects the next market and wraps to the beginning of the list', () => {
+    const markets = [
+      { symbol: 'BTCUSDT', price: 1, change: 0, turnover: 1 },
+      { symbol: 'ETHUSDT', price: 1, change: 0, turnover: 1 },
+      { symbol: 'SOLUSDT', price: 1, change: 0, turnover: 1 },
+    ]
+
+    expect(getNextMarketSymbol(markets, 'BTCUSDT')).toBe('ETHUSDT')
+    expect(getNextMarketSymbol(markets, 'SOLUSDT')).toBe('BTCUSDT')
+    expect(getNextMarketSymbol([], 'BTCUSDT')).toBeUndefined()
   })
 })
