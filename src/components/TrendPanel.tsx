@@ -1,9 +1,11 @@
-import { getOverallTrend, type OverallTrend, type TrendAnalysis, type TrendDirection } from '../lib/trend'
+import { getOverallTrend, type OverallTrend, type StopProposal, type TrendAnalysis, type TrendDirection } from '../lib/trend'
+import { formatPrice } from '../lib/bybit'
 
 type TrendPanelProps = {
   analyses: TrendAnalysis[]
   loading: boolean
   error: boolean
+  stop: StopProposal | null
 }
 
 const timeframeRole: Record<TrendAnalysis['timeframe'], string> = {
@@ -26,7 +28,7 @@ const overallText: Record<OverallTrend, string> = {
   flat: 'ФЛЕТ / НЕТ СЕТАПА',
 }
 
-export default function TrendPanel({ analyses, loading, error }: TrendPanelProps) {
+export default function TrendPanel({ analyses, loading, error, stop }: TrendPanelProps) {
   const overall = getOverallTrend(analyses)
 
   return (
@@ -56,6 +58,13 @@ export default function TrendPanel({ analyses, loading, error }: TrendPanelProps
           <strong>{overallText[overall]}</strong>
           <small>{overall === 'flat' ? 'Временные интервалы не подтверждают единый сильный тренд' : 'Все таймфреймы подтверждают направление'}</small>
         </footer>
+        {stop && <div className={`stop-summary ${stop.side}`}>
+          {stop.price ? <>
+            <span>ENTRY {formatPrice(stop.entry)}</span>
+            <strong>STOP {formatPrice(stop.price)}</strong>
+            <span>РИСК {stop.distancePercent!.toFixed(2)}% · {stop.distanceAtr!.toFixed(2)} ATR</span>
+          </> : <span>{stop.reason}</span>}
+        </div>}
       </>}
     </section>
   )

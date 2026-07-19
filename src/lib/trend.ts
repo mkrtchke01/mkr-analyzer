@@ -13,6 +13,15 @@ export type TrendAnalysis = {
   reasons: string[]
 }
 
+export type StopProposal = {
+  side: 'long' | 'short'
+  entry: number
+  price?: number
+  distancePercent?: number
+  distanceAtr?: number
+  reason?: string
+}
+
 const FAST_EMA = 21
 const SLOW_EMA = 55
 const PERIOD = 14
@@ -110,6 +119,18 @@ function getStructure(candles: Candle[]): TrendDirection {
   return 'flat'
 }
 
+function findLastSwing(candles: Candle[], kind: 'high' | 'low'): number | undefined {
+  for (let index = candles.length - 3; index >= 2; index -= 1) {
+    const candle = candles[index]
+    const isSwingHigh = candle.high > candles[index - 1].high && candle.high > candles[index - 2].high && candle.high >= candles[index + 1].high && candle.high >= candles[index + 2].high
+    const isSwingLow = candle.low < candles[index - 1].low && candle.low < candles[index - 2].low && candle.low <= candles[index + 1].low && candle.low <= candles[index + 2].low
+    if (kind === 'high' && isSwingHigh) return candle.high
+    if (kind === 'low' && isSwingLow) return candle.low
+  }
+
+  return undefined
+}
+
 export function analyzeTrend(candles: Candle[], timeframe: Timeframe): TrendAnalysis {
   if (candles.length < SLOW_EMA + 8) {
     return { timeframe, direction: 'flat', strength: 0, adx: 0, atr: 0, volumeRatio: 0, reasons: ['Недостаточно свечей'] }
@@ -156,4 +177,30 @@ export function getOverallTrend(analyses: TrendAnalysis[]): OverallTrend {
   if (allBullish && global.strength >= 60 && confirmation.strength >= 50 && weightedStrength >= 55) return 'strong-long'
   if (allBearish && global.strength >= 60 && confirmation.strength >= 50 && weightedStrength >= 55) return 'strong-short'
   return 'flat'
+}
+
+export function calculateStop(candles: Candle[], trend: OverallTrend): StopProposal | null {
+  if (trend === 'flat' || candles.length < PERIOD + 3) return null
+
+  const side = trend === 'strong-long' ? 'long' : 'short'
+  const entry = candles.at(-1)!.close
+  const atr = calculateAtr(candles)
+  const pivot = findLastSwing(candles, side === 'long' ? 'low' : 'high')
+  if (!pivot || !atr) return { side, entry, reason: 'Не найден подтверждённый 5m swing для стопа' }
+
+  const buffer = atr * 0.25
+  const price = side === 'long' ? pivot - buffer : pivot + buffer
+  const distance = side === 'long' ? entry - price : price - entry
+  if (distance <= 0) return { side, entry, reason: 'Стоп оказался по неверную сторону от цены входа' }
+
+  const distanceAtr = distance / atr
+  if (distanceAtr > 2) return { side, entry, distanceAtr, reason: 'Стоп дальше 2 ATR — риск слишком высок' }
+
+  return {
+    side,
+    entry,
+    price,
+    distancePercent: (distance / entry) * 100,
+    distanceAtr,
+  }
 }

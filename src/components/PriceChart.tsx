@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react'
-import { ColorType, createChart, type CandlestickData, type IChartApi, type ISeriesApi, type Time } from 'lightweight-charts'
+import { ColorType, createChart, LineStyle, type CandlestickData, type IChartApi, type IPriceLine, type ISeriesApi, type Time } from 'lightweight-charts'
 import { chartWebSocketUrl, getCandles, klineEventToCandle, timeframeToBybitInterval, type Candle, type Timeframe } from '../lib/bybit'
+import type { StopProposal } from '../lib/trend'
 
 type PriceChartProps = {
   symbol: string
   timeframe: Timeframe
+  stop: StopProposal | null
   onStatusChange: (status: 'loading' | 'live' | 'offline') => void
   onPriceChange: (price: number) => void
 }
@@ -27,10 +29,11 @@ const chartOptions = {
   },
 }
 
-export default function PriceChart({ symbol, timeframe, onStatusChange, onPriceChange }: PriceChartProps) {
+export default function PriceChart({ symbol, timeframe, stop, onStatusChange, onPriceChange }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const stopLineRef = useRef<IPriceLine | null>(null)
 
   useEffect(() => {
     const container = containerRef.current
@@ -57,6 +60,24 @@ export default function PriceChart({ symbol, timeframe, onStatusChange, onPriceC
       seriesRef.current = null
     }
   }, [])
+
+  useEffect(() => {
+    const series = seriesRef.current
+    if (!series) return
+
+    if (stopLineRef.current) series.removePriceLine(stopLineRef.current)
+    stopLineRef.current = null
+    if (!stop?.price) return
+
+    stopLineRef.current = series.createPriceLine({
+      price: stop.price,
+      color: '#ff667a',
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: `STOP ${stop.side.toUpperCase()}`,
+    })
+  }, [stop])
 
   useEffect(() => {
     let socket: WebSocket | undefined
