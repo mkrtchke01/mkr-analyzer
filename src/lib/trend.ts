@@ -2,6 +2,7 @@ import type { Candle, Timeframe } from './bybit'
 
 export type TrendDirection = 'bullish' | 'bearish' | 'flat'
 export type OverallTrend = 'strong-long' | 'strong-short' | 'flat'
+export type SetupSignal = 'long' | 'short'
 
 export type TrendAnalysis = {
   timeframe: Timeframe
@@ -194,6 +195,13 @@ export function getOverallTrend(analyses: TrendAnalysis[]): OverallTrend {
   if (allBullish && global.strength >= 60 && confirmation.strength >= 50 && weightedStrength >= 55) return 'strong-long'
   if (allBearish && global.strength >= 60 && confirmation.strength >= 50 && weightedStrength >= 55) return 'strong-short'
   return 'flat'
+}
+
+export function getSetupSignal(analyses: TrendAnalysis[]): SetupSignal | undefined {
+  const overall = getOverallTrend(analyses)
+  if (overall === 'strong-long') return 'long'
+  if (overall === 'strong-short') return 'short'
+  return undefined
 }
 
 export function calculateStop(candles: Candle[], trend: OverallTrend): StopProposal | null {
