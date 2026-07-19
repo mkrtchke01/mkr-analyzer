@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PriceChart from './components/PriceChart'
+import SignalHistory from './components/SignalHistory'
 import TrendPanel from './components/TrendPanel'
 import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
+import { getSavedSignals, type SavedSignal } from './lib/signals'
 import { analyzeTrend, calculateTradePlan, getOverallTrend, getSetupSignal, type SetupSignal, type TradePlan, type TrendAnalysis } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
@@ -40,6 +42,7 @@ export default function App() {
   const [marketsReady, setMarketsReady] = useState(false)
   const [marketSetups, setMarketSetups] = useState<Record<string, SetupSignal>>({})
   const [setupScanning, setSetupScanning] = useState(false)
+  const [savedOpenSignals, setSavedOpenSignals] = useState<SavedSignal[]>([])
 
   useEffect(() => {
     void getMarkets()
@@ -124,7 +127,31 @@ export default function App() {
     }
   }, [symbol])
 
-  const setupSymbols = useMemo(() => new Set(Object.keys(marketSetups)), [marketSetups])
+  useEffect(() => {
+    let disposed = false
+    const loadSavedSignals = async () => {
+      try {
+        const items = await getSavedSignals('open')
+        if (!disposed) setSavedOpenSignals(items)
+      } catch {
+        // The feature remains usable before the first database migration is applied.
+      }
+    }
+    void loadSavedSignals()
+    const refreshId = window.setInterval(() => void loadSavedSignals(), 30_000)
+    return () => {
+      disposed = true
+      window.clearInterval(refreshId)
+    }
+  }, [])
+
+  const activeMarketSetups = useMemo(() => {
+    const next = { ...marketSetups }
+    savedOpenSignals.forEach((signal) => { next[signal.symbol] = signal.side })
+    return next
+  }, [marketSetups, savedOpenSignals])
+
+  const setupSymbols = useMemo(() => new Set(Object.keys(activeMarketSetups)), [activeMarketSetups])
   const visibleMarkets = useMemo(
     () => filterMarketList(markets, search, setupSymbols, setupsOnly).slice(0, 80),
     [markets, search, setupSymbols, setupsOnly],
@@ -187,6 +214,7 @@ export default function App() {
           </footer>
         </section>
         <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} tradePlan={tradePlan} />
+        <SignalHistory openSignals={savedOpenSignals} onSelectSymbol={setSymbol} />
       </section>
 
       <aside className="markets-panel">
@@ -196,7 +224,7 @@ export default function App() {
             <h1>USDT perpetual</h1>
           </div>
           <div className="market-heading-meta">
-            <span className={`scan-status ${setupScanning ? 'scanning' : ''}`}>{setupScanning ? 'SCAN' : `${Object.keys(marketSetups).length} SETUP`}</span>
+            <span className={`scan-status ${setupScanning ? 'scanning' : ''}`}>{setupScanning ? 'SCAN' : `${Object.keys(activeMarketSetups).length} SETUP`}</span>
             <span className="market-count">{markets.length}</span>
           </div>
         </header>
@@ -207,14 +235,14 @@ export default function App() {
         <label className="setups-only-filter">
           <input type="checkbox" checked={setupsOnly} onChange={(event) => setSetupsOnly(event.target.checked)} />
           <span>Только сетапы</span>
-          <b>{Object.keys(marketSetups).length}</b>
+          <b>{Object.keys(activeMarketSetups).length}</b>
         </label>
         <div className="list-label"><span>ПАРА</span><span>ЦЕНА / 24Ч</span></div>
         <div className="market-list">
           {visibleMarkets.map((market) => (
-            <button className={`market-row ${market.symbol === symbol ? 'selected' : ''} ${marketSetups[market.symbol] ? `setup-${marketSetups[market.symbol]}` : ''}`} key={market.symbol} onClick={() => setSymbol(market.symbol)}>
+            <button className={`market-row ${market.symbol === symbol ? 'selected' : ''} ${activeMarketSetups[market.symbol] ? `setup-${activeMarketSetups[market.symbol]}` : ''}`} key={market.symbol} onClick={() => setSymbol(market.symbol)}>
               <span className="coin-icon">{baseAsset(market.symbol).slice(0, 1)}</span>
-              <span className="coin-name"><span className="market-symbol"><b>{baseAsset(market.symbol)}</b>{marketSetups[market.symbol] && <em>{`СЕТАП ${marketSetups[market.symbol]!.toUpperCase()}`}</em>}</span><small>USDT · PERP</small></span>
+              <span className="coin-name"><span className="market-symbol"><b>{baseAsset(market.symbol)}</b>{activeMarketSetups[market.symbol] && <em>{`СЕТАП ${activeMarketSetups[market.symbol]!.toUpperCase()}`}</em>}</span><small>USDT · PERP</small></span>
               <span className="market-values"><b>{market.price ? formatPrice(market.price) : '—'}</b><small className={market.change >= 0 ? 'positive' : 'negative'}>{market.change >= 0 ? '+' : ''}{market.change.toFixed(2)}%</small></span>
             </button>
           ))}
