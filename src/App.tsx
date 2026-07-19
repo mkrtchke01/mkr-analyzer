@@ -47,14 +47,14 @@ export default function App() {
       <section className="workspace" aria-label="Терминал анализа рынков">
         <header className="topbar">
           <div className="brand"><span className="brand-mark">M</span> MKR <span>ANALYZER</span></div>
-          <div className="market-mode"><span className="live-dot" /> SPOT · BYBIT</div>
+          <div className="market-mode"><span className="live-dot" /> PERPETUAL · BYBIT</div>
           <div className="clock">1m</div>
         </header>
 
         <section className="chart-panel">
           <div className="chart-heading">
             <div>
-              <div className="eyebrow">{baseAsset(symbol)} / USDT</div>
+              <div className="eyebrow">{baseAsset(symbol)} / USDT · PERPETUAL</div>
               <div className="price-row">
                 <strong>{currentPrice ? formatPrice(currentPrice) : '—'}</strong>
                 <span className={change >= 0 ? 'positive' : 'negative'}>{change >= 0 ? '+' : ''}{change.toFixed(2)}%</span>
@@ -76,7 +76,7 @@ export default function App() {
         <header className="markets-header">
           <div>
             <div className="eyebrow">РЫНКИ</div>
-            <h1>USDT пары</h1>
+            <h1>USDT perpetual</h1>
           </div>
           <span className="market-count">{markets.length}</span>
         </header>
@@ -89,7 +89,7 @@ export default function App() {
           {visibleMarkets.map((market) => (
             <button className={`market-row ${market.symbol === symbol ? 'selected' : ''}`} key={market.symbol} onClick={() => setSymbol(market.symbol)}>
               <span className="coin-icon">{baseAsset(market.symbol).slice(0, 1)}</span>
-              <span className="coin-name"><b>{baseAsset(market.symbol)}</b><small>USDT</small></span>
+              <span className="coin-name"><b>{baseAsset(market.symbol)}</b><small>USDT · PERP</small></span>
               <span className="market-values"><b>{market.price ? formatPrice(market.price) : '—'}</b><small className={market.change >= 0 ? 'positive' : 'negative'}>{market.change >= 0 ? '+' : ''}{market.change.toFixed(2)}%</small></span>
             </button>
           ))}

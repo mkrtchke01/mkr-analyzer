@@ -13,7 +13,7 @@ export type Market = {
   turnover: number
 }
 
-const MIN_TURNOVER = 20_000_000
+const MIN_TURNOVER = 10_000_000
 const STABLE_BASE_ASSETS = new Set(['USDC', 'USDT'])
 
 type KlineResponse = {
@@ -66,7 +66,7 @@ export function filterMarkets(markets: Market[]): Market[] {
 }
 
 export async function getMarkets(): Promise<Market[]> {
-  const response = await fetch(`${apiBase}/tickers?category=spot`)
+  const response = await fetch(`${apiBase}/tickers?category=linear`)
   if (!response.ok) throw new Error('Не удалось загрузить рынки Bybit')
   const payload = (await response.json()) as TickerResponse
 
@@ -83,7 +83,7 @@ export async function getMarkets(): Promise<Market[]> {
 }
 
 export async function getCandles(symbol: string): Promise<Candle[]> {
-  const params = new URLSearchParams({ category: 'spot', symbol, interval: '1', limit: '500' })
+  const params = new URLSearchParams({ category: 'linear', symbol, interval: '1', limit: '500' })
   const response = await fetch(`${apiBase}/kline?${params}`)
   if (!response.ok) throw new Error('Не удалось загрузить историю графика')
   const payload = (await response.json()) as KlineResponse
@@ -91,5 +91,5 @@ export async function getCandles(symbol: string): Promise<Candle[]> {
 }
 
 export function chartWebSocketUrl(): string {
-  return 'wss://stream.bybit.com/v5/public/spot'
+  return 'wss://stream.bybit.com/v5/public/linear'
 }
