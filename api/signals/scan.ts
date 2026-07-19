@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { getCandles, getMarkets, type Candle, type Timeframe } from '../../src/lib/bybit'
 import { createSignalSnapshot } from '../../src/lib/signalSnapshot'
 import { evaluateSignalCandle, type ManagedSignal } from '../../src/lib/signalLifecycle'
-import { analyzeTrend, calculateTradePlan, getOverallTrend } from '../../src/lib/trend'
+import { analyzeTrend, calculateTradePlans, getOverallTrend, type TradePlan, type TrendAnalysis } from '../../src/lib/trend'
 import { isAuthorizedCronRequest, supabaseRequest, uploadSnapshot } from '../_lib/supabase'
 
 const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
@@ -11,6 +11,7 @@ const MAX_CONCURRENCY = 5
 type StoredSignal = {
   id: string
   symbol: string
+  setup_type: 'trend-reclaim' | 'level-breakout'
   side: 'long' | 'short'
   status: 'active' | 'tp1'
   entry_price: string
@@ -96,25 +97,20 @@ async function monitorSignal(signal: StoredSignal) {
   }
 }
 
-async function scanMarket(symbol: string) {
-  const multiTimeframeCandles = await Promise.all(ANALYSIS_TIMEFRAMES.map((timeframe) => getCandles(symbol, timeframe, 180)))
-  const confirmed = multiTimeframeCandles.map(closedCandles)
-  const analyses = confirmed.map((candles, index) => analyzeTrend(candles, ANALYSIS_TIMEFRAMES[index]))
-  const overall = getOverallTrend(analyses)
-  const entryCandles = confirmed[3]
-  const plan = calculateTradePlan(entryCandles, overall)
-  if (!plan?.stop.price) return false
+async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnalysis[], entryCandles: Candle[]) {
+  if (!plan.stop.price) return false
 
   const confirmationCandle = entryCandles.at(-1)
   if (!confirmationCandle) return false
   const id = randomUUID()
   const snapshotPath = `${id}.svg`
-  const fingerprint = `${symbol}:${plan.stop.side}:${confirmationCandle.time}`
+  const fingerprint = `${symbol}:${plan.setupType}:${plan.stop.side}:${confirmationCandle.time}`
   const detectedAt = new Date(confirmationCandle.time * 1000).toISOString()
   const payload = {
     id,
     fingerprint,
     symbol,
+    setup_type: plan.setupType,
     side: plan.stop.side,
     status: 'active',
     detected_at: detectedAt,
@@ -146,8 +142,19 @@ async function scanMarket(symbol: string) {
   } catch {
     await patchSignal(id, { snapshot_path: null })
   }
-  await createEvent(id, 'detected', confirmationCandle, { trend: overall, entry: plan.stop.entry, stop: plan.stop.price })
+  await createEvent(id, 'detected', confirmationCandle, { trend: getOverallTrend(analyses), setupType: plan.setupType, entry: plan.stop.entry, stop: plan.stop.price })
   return true
+}
+
+async function scanMarket(symbol: string) {
+  const multiTimeframeCandles = await Promise.all(ANALYSIS_TIMEFRAMES.map((timeframe) => getCandles(symbol, timeframe, 180)))
+  const confirmed = multiTimeframeCandles.map(closedCandles)
+  const analyses = confirmed.map((candles, index) => analyzeTrend(candles, ANALYSIS_TIMEFRAMES[index]))
+  const entryCandles = confirmed[3]
+  const plans = calculateTradePlans(entryCandles, getOverallTrend(analyses))
+  let created = 0
+  for (const plan of plans) if (await persistPlan(symbol, plan, analyses, entryCandles)) created += 1
+  return created
 }
 
 export default async function handler(request: any, response: any) {
@@ -170,7 +177,7 @@ export default async function handler(request: any, response: any) {
     let created = 0
     await runWithConcurrency(markets, async (market) => {
       try {
-        if (await scanMarket(market.symbol)) created += 1
+        created += await scanMarket(market.symbol)
       } catch {
         // Bybit can temporarily reject an individual instrument.
       }

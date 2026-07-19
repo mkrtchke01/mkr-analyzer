@@ -12,12 +12,14 @@ const candles = Array.from({ length: 100 }, (_, index) => ({
 }))
 
 const plan: TradePlan = {
+  setupType: 'trend-reclaim',
+  setupName: 'Trend Reclaim',
+  setupNote: 'Коррекция остановлена · 1.0 ATR',
   stop: { side: 'long', entry: 110, price: 105 },
   takeProfits: [
     { id: 'TP1', price: 120, share: 50, riskMultiple: 2 },
     { id: 'TP2', price: 125, share: 50, riskMultiple: 3 },
   ],
-  pullback: { localTarget: 120, correctionAtr: 1 },
 }
 
 describe('signal snapshot', () => {
@@ -26,6 +28,7 @@ describe('signal snapshot', () => {
 
     expect(snapshot).toContain('<svg')
     expect(snapshot).toContain('BTC&lt;USDT')
+    expect(snapshot).toContain('Trend Reclaim')
     expect(snapshot).toContain('STOP')
     expect(snapshot).toContain('TP1')
     expect(snapshot).toContain('TP2')

@@ -12,6 +12,7 @@ export default async function handler(request: any, response: any) {
       signals: records.map((record) => ({
         id: record.id,
         symbol: record.symbol,
+        setupType: record.setup_type ?? 'trend-reclaim',
         side: record.side,
         status: record.status,
         detectedAt: record.detected_at,
