@@ -66,7 +66,7 @@ export default function PriceChart({ symbol, timeframe, onStatusChange, onPriceC
     if (!series) return
 
     const displayCandle = (candle: Candle) => {
-      series.update(candle as CandlestickData<Time>)
+      series.update(candle as unknown as CandlestickData<Time>)
       onPriceChange(candle.close)
     }
 
@@ -75,7 +75,7 @@ export default function PriceChart({ symbol, timeframe, onStatusChange, onPriceC
       try {
         const candles = await getCandles(symbol, timeframe)
         if (disposed) return
-        series.setData(candles as CandlestickData<Time>[])
+        series.setData(candles as unknown as CandlestickData<Time>[])
         const latest = candles.at(-1)
         if (latest) onPriceChange(latest.close)
       } catch {

@@ -4,6 +4,7 @@ export type Candle = {
   high: number
   low: number
   close: number
+  volume: number
 }
 
 export type Market = {
@@ -40,12 +41,13 @@ const toNumber = (value: string | undefined) => Number(value ?? 0)
 
 export function klineRowsToCandles(rows: string[][]): Candle[] {
   return rows
-    .map(([time, open, high, low, close]) => ({
+    .map(([time, open, high, low, close, volume]) => ({
       time: Math.floor(toNumber(time) / 1000),
       open: toNumber(open),
       high: toNumber(high),
       low: toNumber(low),
       close: toNumber(close),
+      volume: toNumber(volume),
     }))
     .reverse()
 }
@@ -57,6 +59,7 @@ export function klineEventToCandle(event: Record<string, string | number>): Cand
     high: Number(event.high),
     low: Number(event.low),
     close: Number(event.close),
+    volume: Number(event.volume),
   }
 }
 
@@ -103,8 +106,8 @@ export async function getMarkets(): Promise<Market[]> {
   return filterMarkets(markets)
 }
 
-export async function getCandles(symbol: string, timeframe: Timeframe): Promise<Candle[]> {
-  const params = new URLSearchParams({ category: 'linear', symbol, interval: timeframeToBybitInterval(timeframe), limit: '500' })
+export async function getCandles(symbol: string, timeframe: Timeframe, limit = 500): Promise<Candle[]> {
+  const params = new URLSearchParams({ category: 'linear', symbol, interval: timeframeToBybitInterval(timeframe), limit: String(limit) })
   const response = await fetch(`${apiBase}/kline?${params}`)
   if (!response.ok) throw new Error('Не удалось загрузить историю графика')
   const payload = (await response.json()) as KlineResponse

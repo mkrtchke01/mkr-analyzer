@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PriceChart from './components/PriceChart'
-import { formatPrice, getMarkets, getNextMarketSymbol, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
+import TrendPanel from './components/TrendPanel'
+import { formatPrice, getCandles, getMarkets, getNextMarketSymbol, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
+import { analyzeTrend, type TrendAnalysis } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
   { symbol: 'BTCUSDT', price: 0, change: 0, turnover: 0 },
   { symbol: 'ETHUSDT', price: 0, change: 0, turnover: 0 },
   { symbol: 'SOLUSDT', price: 0, change: 0, turnover: 0 },
 ]
+
+const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
 
 function baseAsset(symbol: string) {
   return symbol.replace('USDT', '')
@@ -26,12 +30,40 @@ export default function App() {
   const [status, setStatus] = useState<'loading' | 'live' | 'offline'>('loading')
   const [currentPrice, setCurrentPrice] = useState(0)
   const [marketsError, setMarketsError] = useState(false)
+  const [trendAnalyses, setTrendAnalyses] = useState<TrendAnalysis[]>([])
+  const [trendLoading, setTrendLoading] = useState(true)
+  const [trendError, setTrendError] = useState(false)
 
   useEffect(() => {
     void getMarkets()
       .then((items) => setMarkets(items))
       .catch(() => setMarketsError(true))
   }, [])
+
+  useEffect(() => {
+    let disposed = false
+    const loadTrendAnalyses = async () => {
+      setTrendLoading(true)
+      try {
+        const candles = await Promise.all(ANALYSIS_TIMEFRAMES.map((item) => getCandles(symbol, item, 300)))
+        if (!disposed) {
+          setTrendAnalyses(candles.map((items, index) => analyzeTrend(items, ANALYSIS_TIMEFRAMES[index])))
+          setTrendError(false)
+        }
+      } catch {
+        if (!disposed) setTrendError(true)
+      } finally {
+        if (!disposed) setTrendLoading(false)
+      }
+    }
+
+    void loadTrendAnalyses()
+    const refreshId = window.setInterval(() => void loadTrendAnalyses(), 30_000)
+    return () => {
+      disposed = true
+      window.clearInterval(refreshId)
+    }
+  }, [symbol])
 
   const visibleMarkets = useMemo(() => {
     const query = search.trim().toUpperCase()
@@ -94,6 +126,7 @@ export default function App() {
             <span>Источник: Bybit public market data</span>
           </footer>
         </section>
+        <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} />
       </section>
 
       <aside className="markets-panel">
