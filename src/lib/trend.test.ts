@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateEma, getOverallTrend, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateEma, calculateStop, getOverallTrend, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -29,5 +29,19 @@ describe('trend analysis', () => {
     const strongShort = strongLong.map((item) => ({ ...item, direction: 'bearish' as const }))
     expect(getOverallTrend(strongShort)).toBe('strong-short')
     expect(getOverallTrend([...strongLong.slice(0, 3), analysis('5m', 'bearish', 55)])).toBe('flat')
+  })
+
+  it('puts a long stop below the last confirmed swing low with an ATR buffer', () => {
+    const candles = makeCandles(0.02)
+    candles[94] = { ...candles[94], low: candles[94].low - 0.6 }
+    const stop = calculateStop(candles, 'strong-long')
+
+    expect(stop?.side).toBe('long')
+    expect(stop?.price).toBeLessThan(stop!.entry)
+    expect(stop?.distanceAtr).toBeLessThanOrEqual(2)
+  })
+
+  it('does not propose a stop without a strong multi-timeframe direction', () => {
+    expect(calculateStop(makeCandles(0.05), 'flat')).toBeNull()
   })
 })
