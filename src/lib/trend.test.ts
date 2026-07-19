@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateEma, calculateStop, calculateTradePlan, getOverallTrend, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateEma, calculateStop, calculateTradePlan, getOverallTrend, getSetupSignal, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -26,8 +26,10 @@ describe('trend analysis', () => {
   it('returns a strong long only when every timeframe confirms it', () => {
     const strongLong = [analysis('4h', 'bullish', 75), analysis('1h', 'bullish', 65), analysis('15m', 'bullish', 60), analysis('5m', 'bullish', 55)]
     expect(getOverallTrend(strongLong)).toBe('strong-long')
+    expect(getSetupSignal(strongLong)).toBe('long')
     const strongShort = strongLong.map((item) => ({ ...item, direction: 'bearish' as const }))
     expect(getOverallTrend(strongShort)).toBe('strong-short')
+    expect(getSetupSignal(strongShort)).toBe('short')
     expect(getOverallTrend([...strongLong.slice(0, 3), analysis('5m', 'bearish', 55)])).toBe('flat')
   })
 

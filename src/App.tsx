@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import PriceChart from './components/PriceChart'
 import TrendPanel from './components/TrendPanel'
 import { formatPrice, getCandles, getMarkets, getNextMarketSymbol, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
-import { analyzeTrend, calculateTradePlan, getOverallTrend, type TradePlan, type TrendAnalysis } from './lib/trend'
+import { analyzeTrend, calculateTradePlan, getOverallTrend, getSetupSignal, type SetupSignal, type TradePlan, type TrendAnalysis } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
   { symbol: 'BTCUSDT', price: 0, change: 0, turnover: 0 },
@@ -11,6 +11,8 @@ const FALLBACK_MARKETS: Market[] = [
 ]
 
 const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
+const SCAN_INTERVAL = 5 * 60_000
+const SCAN_CONCURRENCY = 3
 
 function baseAsset(symbol: string) {
   return symbol.replace('USDT', '')
@@ -34,12 +36,57 @@ export default function App() {
   const [trendLoading, setTrendLoading] = useState(true)
   const [trendError, setTrendError] = useState(false)
   const [tradePlan, setTradePlan] = useState<TradePlan | null>(null)
+  const [marketsReady, setMarketsReady] = useState(false)
+  const [marketSetups, setMarketSetups] = useState<Record<string, SetupSignal>>({})
+  const [setupScanning, setSetupScanning] = useState(false)
 
   useEffect(() => {
     void getMarkets()
-      .then((items) => setMarkets(items))
+      .then((items) => {
+        setMarkets(items)
+        setMarketsReady(true)
+      })
       .catch(() => setMarketsError(true))
   }, [])
+
+  useEffect(() => {
+    if (!marketsReady || !markets.length) return
+
+    let disposed = false
+    const symbols = markets.map((market) => market.symbol)
+    const scanSetups = async () => {
+      setSetupScanning(true)
+      const found: Record<string, SetupSignal> = {}
+      let nextIndex = 0
+      const scanOne = async () => {
+        while (nextIndex < symbols.length) {
+          const currentSymbol = symbols[nextIndex]
+          nextIndex += 1
+          try {
+            const candles = await Promise.all(ANALYSIS_TIMEFRAMES.map((item) => getCandles(currentSymbol, item, 120)))
+            const analyses = candles.map((items, index) => analyzeTrend(items, ANALYSIS_TIMEFRAMES[index]))
+            const setup = getSetupSignal(analyses)
+            if (setup) found[currentSymbol] = setup
+          } catch {
+            // A single unavailable market must not interrupt the complete scan.
+          }
+        }
+      }
+
+      await Promise.all(Array.from({ length: Math.min(SCAN_CONCURRENCY, symbols.length) }, () => scanOne()))
+      if (!disposed) {
+        setMarketSetups(found)
+        setSetupScanning(false)
+      }
+    }
+
+    void scanSetups()
+    const scanId = window.setInterval(() => void scanSetups(), SCAN_INTERVAL)
+    return () => {
+      disposed = true
+      window.clearInterval(scanId)
+    }
+  }, [markets, marketsReady])
 
   useEffect(() => {
     let disposed = false
@@ -51,6 +98,13 @@ export default function App() {
           const analyses = candles.map((items, index) => analyzeTrend(items, ANALYSIS_TIMEFRAMES[index]))
           setTrendAnalyses(analyses)
           setTradePlan(calculateTradePlan(candles[3], getOverallTrend(analyses)))
+          const setup = getSetupSignal(analyses)
+          setMarketSetups((previous) => {
+            const next = { ...previous }
+            if (setup) next[symbol] = setup
+            else delete next[symbol]
+            return next
+          })
           setTrendError(false)
         }
       } catch {
@@ -138,7 +192,10 @@ export default function App() {
             <div className="eyebrow">РЫНКИ</div>
             <h1>USDT perpetual</h1>
           </div>
-          <span className="market-count">{markets.length}</span>
+          <div className="market-heading-meta">
+            <span className={`scan-status ${setupScanning ? 'scanning' : ''}`}>{setupScanning ? 'SCAN' : `${Object.keys(marketSetups).length} SETUP`}</span>
+            <span className="market-count">{markets.length}</span>
+          </div>
         </header>
         <label className="search-box">
           <span>⌕</span>
@@ -147,9 +204,9 @@ export default function App() {
         <div className="list-label"><span>ПАРА</span><span>ЦЕНА / 24Ч</span></div>
         <div className="market-list">
           {visibleMarkets.map((market) => (
-            <button className={`market-row ${market.symbol === symbol ? 'selected' : ''}`} key={market.symbol} onClick={() => setSymbol(market.symbol)}>
+            <button className={`market-row ${market.symbol === symbol ? 'selected' : ''} ${marketSetups[market.symbol] ? `setup-${marketSetups[market.symbol]}` : ''}`} key={market.symbol} onClick={() => setSymbol(market.symbol)}>
               <span className="coin-icon">{baseAsset(market.symbol).slice(0, 1)}</span>
-              <span className="coin-name"><b>{baseAsset(market.symbol)}</b><small>USDT · PERP</small></span>
+              <span className="coin-name"><span className="market-symbol"><b>{baseAsset(market.symbol)}</b>{marketSetups[market.symbol] && <em>{`СЕТАП ${marketSetups[market.symbol]!.toUpperCase()}`}</em>}</span><small>USDT · PERP</small></span>
               <span className="market-values"><b>{market.price ? formatPrice(market.price) : '—'}</b><small className={market.change >= 0 ? 'positive' : 'negative'}>{market.change >= 0 ? '+' : ''}{market.change.toFixed(2)}%</small></span>
             </button>
           ))}
