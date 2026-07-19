@@ -97,7 +97,7 @@ export function getNextMarketSymbol(markets: Market[], currentSymbol: string): s
 
 export async function getMarkets(): Promise<Market[]> {
   const response = await fetch(`${apiBase}/tickers?category=linear`)
-  if (!response.ok) throw new Error('Не удалось загрузить рынки Bybit')
+  if (!response.ok) throw new Error(`Не удалось загрузить рынки Bybit (HTTP ${response.status})`)
   const payload = (await response.json()) as TickerResponse
 
   const markets = (payload.result?.list ?? [])
@@ -115,7 +115,7 @@ export async function getMarkets(): Promise<Market[]> {
 export async function getCandles(symbol: string, timeframe: Timeframe, limit = 500): Promise<Candle[]> {
   const params = new URLSearchParams({ category: 'linear', symbol, interval: timeframeToBybitInterval(timeframe), limit: String(limit) })
   const response = await fetch(`${apiBase}/kline?${params}`)
-  if (!response.ok) throw new Error('Не удалось загрузить историю графика')
+  if (!response.ok) throw new Error(`Не удалось загрузить историю графика (HTTP ${response.status})`)
   const payload = (await response.json()) as KlineResponse
   return klineRowsToCandles(payload.result?.list ?? [])
 }

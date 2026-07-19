@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/signals/scan.ts": {
+      "regions": ["fra1"]
+    }
+  }
+}

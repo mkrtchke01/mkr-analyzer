@@ -185,6 +185,7 @@ export default async function handler(request: any, response: any) {
     response.setHeader('Cache-Control', 'no-store')
     return response.status(200).json({ ok: true, monitored, created, scanned: markets.length })
   } catch (error) {
+    console.error('Signal scan failed', error)
     return response.status(500).json({ error: error instanceof Error ? error.message : 'Signal scan failed' })
   }
 }

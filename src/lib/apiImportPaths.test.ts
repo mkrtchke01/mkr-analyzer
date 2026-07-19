@@ -7,6 +7,8 @@ const functionFiles = [
   new URL('../../api/signals/scan.ts', import.meta.url),
 ]
 
+const vercelConfig = new URL('../../vercel.json', import.meta.url)
+
 describe('serverless function imports', () => {
   it('uses explicit .js extensions for local ESM dependencies', () => {
     for (const file of functionFiles) {
@@ -16,5 +18,13 @@ describe('serverless function imports', () => {
       expect(localImports).not.toHaveLength(0)
       expect(localImports.every((path) => path.endsWith('.js'))).toBe(true)
     }
+  })
+
+  it('runs the Bybit signal scanner from an EU region', () => {
+    const config = JSON.parse(readFileSync(vercelConfig, 'utf8')) as {
+      functions?: Record<string, { regions?: string[] }>
+    }
+
+    expect(config.functions?.['api/signals/scan.ts']?.regions).toEqual(['fra1'])
   })
 })

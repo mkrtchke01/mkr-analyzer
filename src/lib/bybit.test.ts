@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { filterMarketList, filterMarkets, formatPrice, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, timeframeToBybitInterval } from './bybit'
+import { describe, expect, it, vi } from 'vitest'
+import { filterMarketList, filterMarkets, formatPrice, getMarkets, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, timeframeToBybitInterval } from './bybit'
 
 describe('Bybit market data conversion', () => {
   it('converts reverse-ordered REST klines into chronological candles', () => {
@@ -73,5 +73,13 @@ describe('Bybit market data conversion', () => {
     expect(filterMarketList(markets, '', setupSymbols, true).map((market) => market.symbol)).toEqual(['BTCUSDT', 'SOLUSDT'])
     expect(filterMarketList(markets, 'sol', setupSymbols, true).map((market) => market.symbol)).toEqual(['SOLUSDT'])
     expect(filterMarketList(markets, '', setupSymbols, false)).toHaveLength(3)
+  })
+
+  it('reports the Bybit status code when loading markets fails', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 403 }))
+
+    await expect(getMarkets()).rejects.toThrow('Не удалось загрузить рынки Bybit (HTTP 403)')
+
+    fetchMock.mockRestore()
   })
 })
