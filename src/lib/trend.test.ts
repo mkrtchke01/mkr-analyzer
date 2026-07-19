@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateEma, calculateStop, calculateTradePlan, getOverallTrend, getSetupSignal, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateEma, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getSetupSignal, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -31,6 +31,22 @@ const mirrorCandles = (candles: Candle[]): Candle[] => candles.map((candle) => (
   close: 200 - candle.close,
 }))
 
+const makeLevelBreakoutCandles = (): Candle[] => {
+  const candles = makeCandles(0.2)
+  const set = (index: number, open: number, high: number, low: number, close: number, volume = 160) => { candles[index] = { time: index, open, high, low, close, volume } }
+  set(90, 119.6, 121, 119.4, 120, 110)
+  set(91, 120, 120.4, 119.7, 120.1, 110)
+  set(92, 120.1, 120.3, 119.8, 120, 110)
+  set(93, 120, 120.2, 119.9, 120.05, 110)
+  set(94, 120.05, 120.25, 119.9, 120.1, 110)
+  set(95, 120.1, 120.55, 120, 120.35)
+  set(96, 120.35, 120.65, 120.1, 120.45)
+  set(97, 120.45, 120.7, 120.2, 120.5)
+  set(98, 120.5, 120.75, 120.25, 120.55)
+  set(99, 120.55, 120.8, 120.3, 120.75)
+  return candles
+}
+
 const analysis = (timeframe: TrendAnalysis['timeframe'], direction: TrendAnalysis['direction'], strength: number): TrendAnalysis => ({
   timeframe, direction, strength, adx: 30, atr: 1, volumeRatio: 1.2, reasons: [],
 })
@@ -50,10 +66,10 @@ describe('trend analysis', () => {
   it('returns a strong long only when every timeframe confirms it', () => {
     const strongLong = [analysis('4h', 'bullish', 75), analysis('1h', 'bullish', 65), analysis('15m', 'bullish', 60), analysis('5m', 'bullish', 55)]
     expect(getOverallTrend(strongLong)).toBe('strong-long')
-    expect(getSetupSignal(strongLong, makeStoppedPullbackCandles())).toBe('long')
+    expect(getSetupSignal(strongLong, makeStoppedPullbackCandles())).toMatchObject({ type: 'trend-reclaim', side: 'long' })
     const strongShort = strongLong.map((item) => ({ ...item, direction: 'bearish' as const }))
     expect(getOverallTrend(strongShort)).toBe('strong-short')
-    expect(getSetupSignal(strongShort, mirrorCandles(makeStoppedPullbackCandles()))).toBe('short')
+    expect(getSetupSignal(strongShort, mirrorCandles(makeStoppedPullbackCandles()))).toMatchObject({ type: 'trend-reclaim', side: 'short' })
     expect(getSetupSignal(strongLong, makeCandles(0.5))).toBeUndefined()
     expect(getOverallTrend([...strongLong.slice(0, 3), analysis('5m', 'bearish', 55)])).toBe('flat')
   })
@@ -81,6 +97,28 @@ describe('trend analysis', () => {
     expect(plan!.takeProfits[0]).toMatchObject({ id: 'TP1', share: 50, price: 121 })
     expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1)
     expect(plan!.takeProfits[1]).toMatchObject({ id: 'TP2', share: 50, riskMultiple: 3, price: plan!.stop.entry + risk * 3 })
-    expect(plan!.pullback.correctionAtr).toBeGreaterThanOrEqual(0.5)
+    expect(plan!.setupType).toBe('trend-reclaim')
+    expect(plan!.setupNote).toContain('Коррекция остановлена')
+  })
+
+  it('builds a level-breakout plan after consolidation just below resistance', () => {
+    const plan = calculateLevelBreakoutPlan(makeLevelBreakoutCandles(), 'strong-long')
+    const risk = plan!.stop.entry - plan!.stop.price!
+
+    expect(plan).toMatchObject({ setupType: 'level-breakout', setupName: 'Level Breakout' })
+    expect(plan!.takeProfits).toMatchObject([
+      { id: 'TP1', share: 50, riskMultiple: 1.5, price: plan!.stop.entry + risk * 1.5 },
+      { id: 'TP2', share: 50, riskMultiple: 3, price: plan!.stop.entry + risk * 3 },
+    ])
+    expect(plan!.stop.price).toBeLessThan(120)
+  })
+
+  it('mirrors the level-breakout plan for a short below support', () => {
+    const plan = calculateLevelBreakoutPlan(mirrorCandles(makeLevelBreakoutCandles()), 'strong-short')
+    const risk = plan!.stop.price! - plan!.stop.entry
+
+    expect(plan).toMatchObject({ setupType: 'level-breakout', stop: { side: 'short' } })
+    expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
+    expect(plan!.takeProfits[0]).toMatchObject({ riskMultiple: 1.5, price: plan!.stop.entry - risk * 1.5 })
   })
 })

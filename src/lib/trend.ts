@@ -2,7 +2,13 @@ import type { Candle, Timeframe } from './bybit'
 
 export type TrendDirection = 'bullish' | 'bearish' | 'flat'
 export type OverallTrend = 'strong-long' | 'strong-short' | 'flat'
-export type SetupSignal = 'long' | 'short'
+export type SetupType = 'trend-reclaim' | 'level-breakout'
+export type SetupSignal = { type: SetupType; side: 'long' | 'short' }
+
+export const SETUP_META: Record<SetupType, { shortName: string; name: string }> = {
+  'trend-reclaim': { shortName: 'TR', name: 'Trend Reclaim' },
+  'level-breakout': { shortName: 'LB', name: 'Level Breakout' },
+}
 
 export type TrendAnalysis = {
   timeframe: Timeframe
@@ -31,12 +37,11 @@ export type TakeProfitLevel = {
 }
 
 export type TradePlan = {
+  setupType: SetupType
+  setupName: string
+  setupNote: string
   stop: StopProposal
   takeProfits: TakeProfitLevel[]
-  pullback: {
-    localTarget: number
-    correctionAtr: number
-  }
 }
 
 const FAST_EMA = 21
@@ -197,11 +202,12 @@ export function getOverallTrend(analyses: TrendAnalysis[]): OverallTrend {
 }
 
 export function getSetupSignal(analyses: TrendAnalysis[], candles: Candle[]): SetupSignal | undefined {
+  return getSetupSignals(analyses, candles).at(0)
+}
+
+export function getSetupSignals(analyses: TrendAnalysis[], candles: Candle[]): SetupSignal[] {
   const overall = getOverallTrend(analyses)
-  const plan = calculateTradePlan(candles, overall)
-  if (plan?.stop.side === 'long') return 'long'
-  if (plan?.stop.side === 'short') return 'short'
-  return undefined
+  return calculateTradePlans(candles, overall).map((plan) => ({ type: plan.setupType, side: plan.stop.side }))
 }
 
 export function calculateStop(candles: Candle[], trend: OverallTrend): StopProposal | null {
@@ -231,6 +237,10 @@ export function calculateStop(candles: Candle[], trend: OverallTrend): StopPropo
 }
 
 export function calculateTradePlan(candles: Candle[], trend: OverallTrend): TradePlan | null {
+  return calculateTrendReclaimPlan(candles, trend)
+}
+
+export function calculateTrendReclaimPlan(candles: Candle[], trend: OverallTrend): TradePlan | null {
   if (trend === 'flat' || candles.length < PERIOD + 8) return null
 
   const side = trend === 'strong-long' ? 'long' : 'short'
@@ -267,11 +277,75 @@ export function calculateTradePlan(candles: Candle[], trend: OverallTrend): Trad
   }
   const direction = side === 'long' ? 1 : -1
   return {
+    setupType: 'trend-reclaim',
+    setupName: SETUP_META['trend-reclaim'].name,
+    setupNote: `Коррекция остановлена · ${correctionAtr.toFixed(1)} ATR`,
     stop,
     takeProfits: [
       { id: 'TP1', price: localTarget.price, share: 50, riskMultiple: rewardToTarget / risk },
       { id: 'TP2', price: entry + direction * risk * 3, share: 50, riskMultiple: 3 },
     ],
-    pullback: { localTarget: localTarget.price, correctionAtr },
   }
+}
+
+const CONSOLIDATION_CANDLES = 5
+
+export function calculateLevelBreakoutPlan(candles: Candle[], trend: OverallTrend): TradePlan | null {
+  if (trend === 'flat' || candles.length < PERIOD + CONSOLIDATION_CANDLES + 8) return null
+
+  const side = trend === 'strong-long' ? 'long' : 'short'
+  const atr = calculateAtr(candles)
+  if (!atr) return null
+
+  const consolidation = candles.slice(-CONSOLIDATION_CANDLES)
+  const rangeHigh = Math.max(...consolidation.map((candle) => candle.high))
+  const rangeLow = Math.min(...consolidation.map((candle) => candle.low))
+  const range = rangeHigh - rangeLow
+  const rangeAtr = range / atr
+  if (rangeAtr <= 0 || rangeAtr > 1.5) return null
+
+  const level = findLastSwing(candles, side === 'long' ? 'high' : 'low', candles.length - CONSOLIDATION_CANDLES - 2)
+  if (!level) return null
+
+  const entryCandle = candles.at(-1)!
+  const entry = entryCandle.close
+  const volumeBefore = candles.slice(-(CONSOLIDATION_CANDLES + 20), -CONSOLIDATION_CANDLES)
+  const averageBefore = volumeBefore.reduce((sum, candle) => sum + candle.volume, 0) / volumeBefore.length
+  const averageConsolidation = consolidation.reduce((sum, candle) => sum + candle.volume, 0) / consolidation.length
+  if (averageBefore && averageConsolidation < averageBefore) return null
+
+  const nearLevel = side === 'long'
+    ? level.price >= rangeHigh && level.price - rangeHigh <= atr * 0.6
+    : level.price <= rangeLow && rangeLow - level.price <= atr * 0.6
+  const holdsNearEdge = side === 'long'
+    ? entry >= rangeLow + range * 0.6 && entryCandle.close >= entryCandle.open
+    : entry <= rangeHigh - range * 0.6 && entryCandle.close <= entryCandle.open
+  if (!nearLevel || !holdsNearEdge) return null
+
+  const buffer = atr * 0.25
+  const stopPrice = side === 'long' ? rangeLow - buffer : rangeHigh + buffer
+  const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
+  if (risk <= 0) return null
+
+  const direction = side === 'long' ? 1 : -1
+  return {
+    setupType: 'level-breakout',
+    setupName: SETUP_META['level-breakout'].name,
+    setupNote: `Наторговка перед уровнем ${level.price.toPrecision(6)} · диапазон ${rangeAtr.toFixed(1)} ATR`,
+    stop: {
+      side,
+      entry,
+      price: stopPrice,
+      distancePercent: (risk / entry) * 100,
+      distanceAtr: risk / atr,
+    },
+    takeProfits: [
+      { id: 'TP1', price: entry + direction * risk * 1.5, share: 50, riskMultiple: 1.5 },
+      { id: 'TP2', price: entry + direction * risk * 3, share: 50, riskMultiple: 3 },
+    ],
+  }
+}
+
+export function calculateTradePlans(candles: Candle[], trend: OverallTrend): TradePlan[] {
+  return [calculateTrendReclaimPlan(candles, trend), calculateLevelBreakoutPlan(candles, trend)].filter((plan): plan is TradePlan => Boolean(plan))
 }

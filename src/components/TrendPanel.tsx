@@ -5,7 +5,7 @@ type TrendPanelProps = {
   analyses: TrendAnalysis[]
   loading: boolean
   error: boolean
-  tradePlan: TradePlan | null
+  tradePlans: TradePlan[]
 }
 
 const timeframeRole: Record<TrendAnalysis['timeframe'], string> = {
@@ -28,7 +28,7 @@ const overallText: Record<OverallTrend, string> = {
   flat: 'ФЛЕТ / НЕТ СЕТАПА',
 }
 
-export default function TrendPanel({ analyses, loading, error, tradePlan }: TrendPanelProps) {
+export default function TrendPanel({ analyses, loading, error, tradePlans }: TrendPanelProps) {
   const overall = getOverallTrend(analyses)
 
   return (
@@ -58,14 +58,15 @@ export default function TrendPanel({ analyses, loading, error, tradePlan }: Tren
           <strong>{overallText[overall]}</strong>
           <small>{overall === 'flat' ? 'Временные интервалы не подтверждают единый сильный тренд' : 'Все таймфреймы подтверждают направление'}</small>
         </footer>
-        {tradePlan && <div className={`trade-plan ${tradePlan.stop.side}`}>
+        {tradePlans.map((tradePlan) => <div className={`trade-plan ${tradePlan.stop.side}`} key={tradePlan.setupType}>
           {tradePlan.stop.price ? <>
+            <b className="setup-plan-name">{tradePlan.setupName} · {tradePlan.stop.side.toUpperCase()}</b>
             <span>ENTRY {formatPrice(tradePlan.stop.entry)}</span>
             <strong>STOP {formatPrice(tradePlan.stop.price)} · {tradePlan.stop.distancePercent!.toFixed(2)}%</strong>
             {tradePlan.takeProfits.map((target) => <span key={target.id}>{target.id} {formatPrice(target.price)} · {target.riskMultiple}R · {target.share}%</span>)}
-            <span className="pullback">КОРРЕКЦИЯ ОСТАНОВЛЕНА · {tradePlan.pullback.correctionAtr.toFixed(1)} ATR</span>
+            <span className="pullback">{tradePlan.setupNote}</span>
           </> : <span>{tradePlan.stop.reason}</span>}
-        </div>}
+        </div>)}
       </>}
     </section>
   )
