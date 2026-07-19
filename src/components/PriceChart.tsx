@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { ColorType, createChart, LineStyle, type CandlestickData, type IChartApi, type IPriceLine, type ISeriesApi, type Time } from 'lightweight-charts'
 import { chartWebSocketUrl, getCandles, klineEventToCandle, timeframeToBybitInterval, type Candle, type Timeframe } from '../lib/bybit'
-import type { TradePlan } from '../lib/trend'
+import { SETUP_META, type TradePlan } from '../lib/trend'
 
 type PriceChartProps = {
   symbol: string
   timeframe: Timeframe
-  tradePlan: TradePlan | null
+  tradePlans: TradePlan[]
   onStatusChange: (status: 'loading' | 'live' | 'offline') => void
   onPriceChange: (price: number) => void
 }
@@ -29,7 +29,7 @@ const chartOptions = {
   },
 }
 
-export default function PriceChart({ symbol, timeframe, tradePlan, onStatusChange, onPriceChange }: PriceChartProps) {
+export default function PriceChart({ symbol, timeframe, tradePlans, onStatusChange, onPriceChange }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -67,30 +67,31 @@ export default function PriceChart({ symbol, timeframe, tradePlan, onStatusChang
 
     tradeLinesRef.current.forEach((line) => series.removePriceLine(line))
     tradeLinesRef.current = []
-    if (!tradePlan) return
-    const stopPrice = tradePlan.stop.price
-    if (stopPrice === undefined) return
-
-    const { stop, takeProfits } = tradePlan
-    tradeLinesRef.current.push(series.createPriceLine({
-      price: stopPrice,
-      color: '#ff667a',
-      lineWidth: 1,
-      lineStyle: LineStyle.Dashed,
-      axisLabelVisible: true,
-      title: `STOP ${stop.side.toUpperCase()}`,
-    }))
-    takeProfits.forEach((takeProfit) => {
+    tradePlans.forEach((tradePlan) => {
+      const stopPrice = tradePlan.stop.price
+      if (stopPrice === undefined) return
+      const { stop, takeProfits } = tradePlan
+      const setupName = SETUP_META[tradePlan.setupType].shortName
       tradeLinesRef.current.push(series.createPriceLine({
-        price: takeProfit.price,
-        color: '#31d28c',
+        price: stopPrice,
+        color: '#ff667a',
         lineWidth: 1,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: `${takeProfit.id} · ${takeProfit.share}% · ${takeProfit.riskMultiple}R`,
+        title: `${setupName} STOP ${stop.side.toUpperCase()}`,
       }))
+      takeProfits.forEach((takeProfit) => {
+        tradeLinesRef.current.push(series.createPriceLine({
+          price: takeProfit.price,
+          color: '#31d28c',
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: `${setupName} ${takeProfit.id} · ${takeProfit.share}% · ${takeProfit.riskMultiple}R`,
+        }))
+      })
     })
-  }, [tradePlan])
+  }, [tradePlans])
 
   useEffect(() => {
     let socket: WebSocket | undefined

@@ -211,7 +211,7 @@ export default function App() {
               <i /> {status === 'live' ? 'Поток данных' : status === 'loading' ? 'Загрузка' : 'Переподключение'}
             </div>
           </div>
-          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} tradePlan={tradePlans.find((plan) => Boolean(plan.stop.price)) ?? null} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
+          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} tradePlans={tradePlans} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
           <footer className="chart-footer">
             <span>Свечи · {timeframe}</span>
             <span>Источник: Bybit public market data</span>
