@@ -9,18 +9,19 @@ describe('Bybit market data conversion', () => {
     ])
 
     expect(candles).toEqual([
-      { time: 1710000000, open: 9, high: 12, low: 8, close: 11 },
-      { time: 1710000060, open: 11, high: 13, low: 10, close: 12 },
+      { time: 1710000000, open: 9, high: 12, low: 8, close: 11, volume: 0 },
+      { time: 1710000060, open: 11, high: 13, low: 10, close: 12, volume: 0 },
     ])
   })
 
   it('converts a streaming kline event into a chart candle', () => {
-    expect(klineEventToCandle({ start: 1710000000123, open: '1.1', high: '1.3', low: '1', close: '1.2' })).toEqual({
+    expect(klineEventToCandle({ start: 1710000000123, open: '1.1', high: '1.3', low: '1', close: '1.2', volume: '200' })).toEqual({
       time: 1710000000,
       open: 1.1,
       high: 1.3,
       low: 1,
       close: 1.2,
+      volume: 200,
     })
   })
 
