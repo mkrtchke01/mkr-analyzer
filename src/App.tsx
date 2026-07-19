@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import PriceChart from './components/PriceChart'
 import TrendPanel from './components/TrendPanel'
 import { formatPrice, getCandles, getMarkets, getNextMarketSymbol, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
-import { analyzeTrend, calculateStop, getOverallTrend, type StopProposal, type TrendAnalysis } from './lib/trend'
+import { analyzeTrend, calculateTradePlan, getOverallTrend, type TradePlan, type TrendAnalysis } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
   { symbol: 'BTCUSDT', price: 0, change: 0, turnover: 0 },
@@ -33,7 +33,7 @@ export default function App() {
   const [trendAnalyses, setTrendAnalyses] = useState<TrendAnalysis[]>([])
   const [trendLoading, setTrendLoading] = useState(true)
   const [trendError, setTrendError] = useState(false)
-  const [stopProposal, setStopProposal] = useState<StopProposal | null>(null)
+  const [tradePlan, setTradePlan] = useState<TradePlan | null>(null)
 
   useEffect(() => {
     void getMarkets()
@@ -50,7 +50,7 @@ export default function App() {
         if (!disposed) {
           const analyses = candles.map((items, index) => analyzeTrend(items, ANALYSIS_TIMEFRAMES[index]))
           setTrendAnalyses(analyses)
-          setStopProposal(calculateStop(candles[3], getOverallTrend(analyses)))
+          setTradePlan(calculateTradePlan(candles[3], getOverallTrend(analyses)))
           setTrendError(false)
         }
       } catch {
@@ -123,13 +123,13 @@ export default function App() {
               <i /> {status === 'live' ? 'Поток данных' : status === 'loading' ? 'Загрузка' : 'Переподключение'}
             </div>
           </div>
-          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} stop={stopProposal?.price ? stopProposal : null} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
+          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} tradePlan={tradePlan?.stop.price ? tradePlan : null} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
           <footer className="chart-footer">
             <span>Свечи · {timeframe}</span>
             <span>Источник: Bybit public market data</span>
           </footer>
         </section>
-        <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} stop={stopProposal} />
+        <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} tradePlan={tradePlan} />
       </section>
 
       <aside className="markets-panel">

@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { ColorType, createChart, LineStyle, type CandlestickData, type IChartApi, type IPriceLine, type ISeriesApi, type Time } from 'lightweight-charts'
 import { chartWebSocketUrl, getCandles, klineEventToCandle, timeframeToBybitInterval, type Candle, type Timeframe } from '../lib/bybit'
-import type { StopProposal } from '../lib/trend'
+import type { TradePlan } from '../lib/trend'
 
 type PriceChartProps = {
   symbol: string
   timeframe: Timeframe
-  stop: StopProposal | null
+  tradePlan: TradePlan | null
   onStatusChange: (status: 'loading' | 'live' | 'offline') => void
   onPriceChange: (price: number) => void
 }
@@ -29,11 +29,11 @@ const chartOptions = {
   },
 }
 
-export default function PriceChart({ symbol, timeframe, stop, onStatusChange, onPriceChange }: PriceChartProps) {
+export default function PriceChart({ symbol, timeframe, tradePlan, onStatusChange, onPriceChange }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
-  const stopLineRef = useRef<IPriceLine | null>(null)
+  const tradeLinesRef = useRef<IPriceLine[]>([])
 
   useEffect(() => {
     const container = containerRef.current
@@ -65,19 +65,40 @@ export default function PriceChart({ symbol, timeframe, stop, onStatusChange, on
     const series = seriesRef.current
     if (!series) return
 
-    if (stopLineRef.current) series.removePriceLine(stopLineRef.current)
-    stopLineRef.current = null
-    if (!stop?.price) return
+    tradeLinesRef.current.forEach((line) => series.removePriceLine(line))
+    tradeLinesRef.current = []
+    if (!tradePlan) return
+    const stopPrice = tradePlan.stop.price
+    if (stopPrice === undefined) return
 
-    stopLineRef.current = series.createPriceLine({
-      price: stop.price,
+    const { stop, takeProfits } = tradePlan
+    tradeLinesRef.current.push(series.createPriceLine({
+      price: stop.entry,
+      color: '#6fa8ff',
+      lineWidth: 1,
+      lineStyle: LineStyle.Dotted,
+      axisLabelVisible: true,
+      title: 'ENTRY',
+    }))
+    tradeLinesRef.current.push(series.createPriceLine({
+      price: stopPrice,
       color: '#ff667a',
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
       axisLabelVisible: true,
       title: `STOP ${stop.side.toUpperCase()}`,
+    }))
+    takeProfits.forEach((takeProfit) => {
+      tradeLinesRef.current.push(series.createPriceLine({
+        price: takeProfit.price,
+        color: '#31d28c',
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: `${takeProfit.id} · ${takeProfit.share}% · ${takeProfit.riskMultiple}R`,
+      }))
     })
-  }, [stop])
+  }, [tradePlan])
 
   useEffect(() => {
     let socket: WebSocket | undefined

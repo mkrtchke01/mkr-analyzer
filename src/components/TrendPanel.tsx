@@ -1,11 +1,11 @@
-import { getOverallTrend, type OverallTrend, type StopProposal, type TrendAnalysis, type TrendDirection } from '../lib/trend'
+import { getOverallTrend, type OverallTrend, type TradePlan, type TrendAnalysis, type TrendDirection } from '../lib/trend'
 import { formatPrice } from '../lib/bybit'
 
 type TrendPanelProps = {
   analyses: TrendAnalysis[]
   loading: boolean
   error: boolean
-  stop: StopProposal | null
+  tradePlan: TradePlan | null
 }
 
 const timeframeRole: Record<TrendAnalysis['timeframe'], string> = {
@@ -28,7 +28,7 @@ const overallText: Record<OverallTrend, string> = {
   flat: 'ФЛЕТ / НЕТ СЕТАПА',
 }
 
-export default function TrendPanel({ analyses, loading, error, stop }: TrendPanelProps) {
+export default function TrendPanel({ analyses, loading, error, tradePlan }: TrendPanelProps) {
   const overall = getOverallTrend(analyses)
 
   return (
@@ -58,12 +58,13 @@ export default function TrendPanel({ analyses, loading, error, stop }: TrendPane
           <strong>{overallText[overall]}</strong>
           <small>{overall === 'flat' ? 'Временные интервалы не подтверждают единый сильный тренд' : 'Все таймфреймы подтверждают направление'}</small>
         </footer>
-        {stop && <div className={`stop-summary ${stop.side}`}>
-          {stop.price ? <>
-            <span>ENTRY {formatPrice(stop.entry)}</span>
-            <strong>STOP {formatPrice(stop.price)}</strong>
-            <span>РИСК {stop.distancePercent!.toFixed(2)}% · {stop.distanceAtr!.toFixed(2)} ATR</span>
-          </> : <span>{stop.reason}</span>}
+        {tradePlan && <div className={`trade-plan ${tradePlan.stop.side}`}>
+          {tradePlan.stop.price ? <>
+            <span>ENTRY {formatPrice(tradePlan.stop.entry)}</span>
+            <strong>STOP {formatPrice(tradePlan.stop.price)} · {tradePlan.stop.distancePercent!.toFixed(2)}%</strong>
+            {tradePlan.takeProfits.map((target) => <span key={target.id}>{target.id} {formatPrice(target.price)} · {target.riskMultiple}R · {target.share}%</span>)}
+            <span className="runner">RUNNER {tradePlan.runner.share}% · после {formatPrice(tradePlan.runner.activationPrice)}</span>
+          </> : <span>{tradePlan.stop.reason}</span>}
         </div>}
       </>}
     </section>
