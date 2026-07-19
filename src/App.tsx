@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PriceChart from './components/PriceChart'
-import { formatPrice, getMarkets, type Market } from './lib/bybit'
+import { formatPrice, getMarkets, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
 
 const FALLBACK_MARKETS: Market[] = [
   { symbol: 'BTCUSDT', price: 0, change: 0, turnover: 0 },
@@ -21,6 +21,7 @@ function formatTurnover(turnover: number) {
 export default function App() {
   const [markets, setMarkets] = useState<Market[]>(FALLBACK_MARKETS)
   const [symbol, setSymbol] = useState('BTCUSDT')
+  const [timeframe, setTimeframe] = useState<Timeframe>('5m')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<'loading' | 'live' | 'offline'>('loading')
   const [currentPrice, setCurrentPrice] = useState(0)
@@ -48,7 +49,12 @@ export default function App() {
         <header className="topbar">
           <div className="brand"><span className="brand-mark">M</span> MKR <span>ANALYZER</span></div>
           <div className="market-mode"><span className="live-dot" /> PERPETUAL · BYBIT</div>
-          <div className="clock">1m</div>
+          <div className="timeframe-selector" aria-label="Таймфрейм графика">
+            {Object.keys(TIMEFRAMES).map((item) => {
+              const value = item as Timeframe
+              return <button className={timeframe === value ? 'active' : ''} key={value} onClick={() => setTimeframe(value)}>{value}</button>
+            })}
+          </div>
         </header>
 
         <section className="chart-panel">
@@ -64,9 +70,9 @@ export default function App() {
               <i /> {status === 'live' ? 'Поток данных' : status === 'loading' ? 'Загрузка' : 'Переподключение'}
             </div>
           </div>
-          <PriceChart key={symbol} symbol={symbol} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
+          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
           <footer className="chart-footer">
-            <span>Свечи · 1 минута</span>
+            <span>Свечи · {timeframe}</span>
             <span>Источник: Bybit public market data</span>
           </footer>
         </section>

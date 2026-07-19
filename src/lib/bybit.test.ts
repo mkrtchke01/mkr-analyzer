@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterMarkets, formatPrice, klineEventToCandle, klineRowsToCandles } from './bybit'
+import { filterMarkets, formatPrice, klineEventToCandle, klineRowsToCandles, timeframeToBybitInterval } from './bybit'
 
 describe('Bybit market data conversion', () => {
   it('converts reverse-ordered REST klines into chronological candles', () => {
@@ -27,6 +27,14 @@ describe('Bybit market data conversion', () => {
   it('formats small and large prices for the market list', () => {
     expect(formatPrice(65321.987)).toBe('65,321.99')
     expect(formatPrice(0.0000123456)).toBe('0.00001235')
+  })
+
+  it('maps every visible timeframe to the Bybit interval', () => {
+    expect(timeframeToBybitInterval('5m')).toBe('5')
+    expect(timeframeToBybitInterval('15m')).toBe('15')
+    expect(timeframeToBybitInterval('1h')).toBe('60')
+    expect(timeframeToBybitInterval('4h')).toBe('240')
+    expect(timeframeToBybitInterval('1d')).toBe('D')
   })
 
   it('keeps only USDT perpetual markets with at least $10m volume and no stablecoins', () => {
