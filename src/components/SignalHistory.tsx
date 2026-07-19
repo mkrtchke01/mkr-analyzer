@@ -5,6 +5,7 @@ import { SETUP_META } from '../lib/trend'
 
 type SignalHistoryProps = {
   openSignals: SavedSignal[]
+  onClose: () => void
   onSelectSymbol: (symbol: string) => void
 }
 
@@ -21,7 +22,7 @@ function formatTimestamp(value: string) {
   return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
 }
 
-export default function SignalHistory({ openSignals, onSelectSymbol }: SignalHistoryProps) {
+export default function SignalHistory({ openSignals, onClose, onSelectSymbol }: SignalHistoryProps) {
   const [state, setState] = useState<SignalState>('open')
   const [closedSignals, setClosedSignals] = useState<SavedSignal[]>([])
   const [loading, setLoading] = useState(false)
@@ -47,10 +48,13 @@ export default function SignalHistory({ openSignals, onSelectSymbol }: SignalHis
   return (
     <section className="signal-history" aria-label="История торговых сигналов">
       <header className="signal-history-heading">
-        <div><div className="eyebrow">SIGNAL JOURNAL</div><h2>Сигналы</h2></div>
-        <div className="signal-tabs">
-          <button className={state === 'open' ? 'active' : ''} onClick={() => switchState('open')}>Открытые <b>{openSignals.length}</b></button>
-          <button className={state === 'closed' ? 'active' : ''} onClick={() => switchState('closed')}>Закрытые</button>
+        <div><div className="eyebrow">SIGNAL JOURNAL · ВСЕ ИНСТРУМЕНТЫ</div><h2>История сигналов</h2></div>
+        <div className="signal-history-actions">
+          <div className="signal-tabs">
+            <button className={state === 'open' ? 'active' : ''} onClick={() => switchState('open')}>Открытые <b>{openSignals.length}</b></button>
+            <button className={state === 'closed' ? 'active' : ''} onClick={() => switchState('closed')}>Закрытые</button>
+          </div>
+          <button className="signal-history-close" onClick={onClose} aria-label="Закрыть историю">×</button>
         </div>
       </header>
       <p className="signal-history-note">Снимок фиксирует свечи и уровни на момент подтверждения сетапа. Дальше сигнал не исчезает, а получает итоговый статус.</p>

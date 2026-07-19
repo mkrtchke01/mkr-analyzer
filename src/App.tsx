@@ -43,6 +43,7 @@ export default function App() {
   const [marketSetups, setMarketSetups] = useState<Record<string, SetupSignal[]>>({})
   const [setupScanning, setSetupScanning] = useState(false)
   const [savedOpenSignals, setSavedOpenSignals] = useState<SavedSignal[]>([])
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   useEffect(() => {
     void getMarkets()
@@ -179,6 +180,13 @@ export default function App() {
     return () => window.removeEventListener('keydown', selectNextMarket)
   }, [symbol, visibleMarkets])
 
+  useEffect(() => {
+    if (!historyOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setHistoryOpen(false) }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [historyOpen])
+
   const selectedMarket = markets.find((market) => market.symbol === symbol)
   const change = selectedMarket?.change ?? 0
   const handleStatusChange = useCallback((nextStatus: 'loading' | 'live' | 'offline') => setStatus(nextStatus), [])
@@ -190,6 +198,7 @@ export default function App() {
         <header className="topbar">
           <div className="brand"><span className="brand-mark">M</span> MKR <span>ANALYZER</span></div>
           <div className="market-mode"><span className="live-dot" /> PERPETUAL · BYBIT</div>
+          <button className="history-trigger" onClick={() => setHistoryOpen(true)}>История <b>{savedOpenSignals.length}</b></button>
           <div className="timeframe-selector" aria-label="Таймфрейм графика">
             {Object.keys(TIMEFRAMES).map((item) => {
               const value = item as Timeframe
@@ -218,7 +227,6 @@ export default function App() {
           </footer>
         </section>
         <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} tradePlans={tradePlans} />
-        <SignalHistory openSignals={savedOpenSignals} onSelectSymbol={setSymbol} />
       </section>
 
       <aside className="markets-panel">
@@ -254,6 +262,11 @@ export default function App() {
         </div>
         <footer className="markets-footer">{marketsError ? 'Не удалось обновить список — показаны популярные пары.' : `Объём 24ч · ${formatTurnover(markets.reduce((sum, market) => sum + market.turnover, 0))}`}</footer>
       </aside>
+      {historyOpen && <div className="signal-history-dialog" role="presentation" onMouseDown={() => setHistoryOpen(false)}>
+        <div className="signal-history-modal" role="dialog" aria-modal="true" aria-label="История всех сигналов" onMouseDown={(event) => event.stopPropagation()}>
+          <SignalHistory openSignals={savedOpenSignals} onClose={() => setHistoryOpen(false)} onSelectSymbol={(nextSymbol) => { setSymbol(nextSymbol); setHistoryOpen(false) }} />
+        </div>
+      </div>}
     </main>
   )
 }
