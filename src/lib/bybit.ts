@@ -79,6 +79,13 @@ export function filterMarkets(markets: Market[]): Market[] {
     .sort((left, right) => right.turnover - left.turnover)
 }
 
+export function getNextMarketSymbol(markets: Market[], currentSymbol: string): string | undefined {
+  if (!markets.length) return undefined
+
+  const currentIndex = markets.findIndex((market) => market.symbol === currentSymbol)
+  return markets[(currentIndex + 1) % markets.length].symbol
+}
+
 export async function getMarkets(): Promise<Market[]> {
   const response = await fetch(`${apiBase}/tickers?category=linear`)
   if (!response.ok) throw new Error('Не удалось загрузить рынки Bybit')

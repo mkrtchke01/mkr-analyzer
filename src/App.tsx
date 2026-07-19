@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PriceChart from './components/PriceChart'
-import { formatPrice, getMarkets, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
+import { formatPrice, getMarkets, getNextMarketSymbol, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
 
 const FALLBACK_MARKETS: Market[] = [
   { symbol: 'BTCUSDT', price: 0, change: 0, turnover: 0 },
@@ -37,6 +37,24 @@ export default function App() {
     const query = search.trim().toUpperCase()
     return markets.filter((market) => market.symbol.includes(query)).slice(0, 80)
   }, [markets, search])
+
+  useEffect(() => {
+    const selectNextMarket = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || event.repeat) return
+
+      const target = event.target as Element | null
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
+
+      const nextSymbol = getNextMarketSymbol(visibleMarkets, symbol)
+      if (!nextSymbol) return
+
+      event.preventDefault()
+      setSymbol(nextSymbol)
+    }
+
+    window.addEventListener('keydown', selectNextMarket)
+    return () => window.removeEventListener('keydown', selectNextMarket)
+  }, [symbol, visibleMarkets])
 
   const selectedMarket = markets.find((market) => market.symbol === symbol)
   const change = selectedMarket?.change ?? 0
