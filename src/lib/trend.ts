@@ -22,6 +22,23 @@ export type StopProposal = {
   reason?: string
 }
 
+export type TakeProfitLevel = {
+  id: 'TP1' | 'TP2'
+  price: number
+  share: number
+  riskMultiple: number
+}
+
+export type TradePlan = {
+  stop: StopProposal
+  takeProfits: TakeProfitLevel[]
+  runner: {
+    share: number
+    activationPrice: number
+    description: string
+  }
+}
+
 const FAST_EMA = 21
 const SLOW_EMA = 55
 const PERIOD = 14
@@ -202,5 +219,31 @@ export function calculateStop(candles: Candle[], trend: OverallTrend): StopPropo
     price,
     distancePercent: (distance / entry) * 100,
     distanceAtr,
+  }
+}
+
+export function calculateTradePlan(candles: Candle[], trend: OverallTrend): TradePlan | null {
+  const stop = calculateStop(candles, trend)
+  if (!stop) return null
+
+  if (!stop.price || !stop.distancePercent || !stop.distanceAtr) {
+    return { stop, takeProfits: [], runner: { share: 30, activationPrice: stop.entry, description: 'Трейлинг недоступен без валидного стопа' } }
+  }
+
+  const risk = Math.abs(stop.entry - stop.price)
+  const direction = stop.side === 'long' ? 1 : -1
+  const tp1 = stop.entry + direction * risk
+  const tp2 = stop.entry + direction * risk * 2
+  return {
+    stop,
+    takeProfits: [
+      { id: 'TP1', price: tp1, share: 30, riskMultiple: 1 },
+      { id: 'TP2', price: tp2, share: 40, riskMultiple: 2 },
+    ],
+    runner: {
+      share: 30,
+      activationPrice: tp2,
+      description: 'После TP2 вести по 5m swing с буфером 0.25 ATR',
+    },
   }
 }
