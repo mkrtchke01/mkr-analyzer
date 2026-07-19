@@ -33,10 +33,9 @@ export type TakeProfitLevel = {
 export type TradePlan = {
   stop: StopProposal
   takeProfits: TakeProfitLevel[]
-  runner: {
-    share: number
-    activationPrice: number
-    description: string
+  pullback: {
+    localTarget: number
+    correctionAtr: number
   }
 }
 
@@ -137,13 +136,13 @@ function getStructure(candles: Candle[]): TrendDirection {
   return 'flat'
 }
 
-function findLastSwing(candles: Candle[], kind: 'high' | 'low'): number | undefined {
-  for (let index = candles.length - 3; index >= 2; index -= 1) {
+function findLastSwing(candles: Candle[], kind: 'high' | 'low', beforeIndex = candles.length - 3): { index: number; price: number } | undefined {
+  for (let index = beforeIndex; index >= 2; index -= 1) {
     const candle = candles[index]
     const isSwingHigh = candle.high > candles[index - 1].high && candle.high > candles[index - 2].high && candle.high >= candles[index + 1].high && candle.high >= candles[index + 2].high
     const isSwingLow = candle.low < candles[index - 1].low && candle.low < candles[index - 2].low && candle.low <= candles[index + 1].low && candle.low <= candles[index + 2].low
-    if (kind === 'high' && isSwingHigh) return candle.high
-    if (kind === 'low' && isSwingLow) return candle.low
+    if (kind === 'high' && isSwingHigh) return { index, price: candle.high }
+    if (kind === 'low' && isSwingLow) return { index, price: candle.low }
   }
 
   return undefined
@@ -197,10 +196,11 @@ export function getOverallTrend(analyses: TrendAnalysis[]): OverallTrend {
   return 'flat'
 }
 
-export function getSetupSignal(analyses: TrendAnalysis[]): SetupSignal | undefined {
+export function getSetupSignal(analyses: TrendAnalysis[], candles: Candle[]): SetupSignal | undefined {
   const overall = getOverallTrend(analyses)
-  if (overall === 'strong-long') return 'long'
-  if (overall === 'strong-short') return 'short'
+  const plan = calculateTradePlan(candles, overall)
+  if (plan?.stop.side === 'long') return 'long'
+  if (plan?.stop.side === 'short') return 'short'
   return undefined
 }
 
@@ -214,7 +214,7 @@ export function calculateStop(candles: Candle[], trend: OverallTrend): StopPropo
   if (!pivot || !atr) return { side, entry, reason: 'Не найден подтверждённый 5m swing для стопа' }
 
   const buffer = atr * 0.25
-  const price = side === 'long' ? pivot - buffer : pivot + buffer
+  const price = side === 'long' ? pivot.price - buffer : pivot.price + buffer
   const distance = side === 'long' ? entry - price : price - entry
   if (distance <= 0) return { side, entry, reason: 'Стоп оказался по неверную сторону от цены входа' }
 
@@ -231,27 +231,47 @@ export function calculateStop(candles: Candle[], trend: OverallTrend): StopPropo
 }
 
 export function calculateTradePlan(candles: Candle[], trend: OverallTrend): TradePlan | null {
-  const stop = calculateStop(candles, trend)
-  if (!stop) return null
+  if (trend === 'flat' || candles.length < PERIOD + 8) return null
 
-  if (!stop.price || !stop.distancePercent || !stop.distanceAtr) {
-    return { stop, takeProfits: [], runner: { share: 30, activationPrice: stop.entry, description: 'Трейлинг недоступен без валидного стопа' } }
+  const side = trend === 'strong-long' ? 'long' : 'short'
+  const atr = calculateAtr(candles)
+  const entry = candles.at(-1)!.close
+  const pullback = findLastSwing(candles, side === 'long' ? 'low' : 'high')
+  if (!pullback || !atr) return null
+
+  const localTarget = findLastSwing(candles, side === 'long' ? 'high' : 'low', pullback.index - 1)
+  if (!localTarget) return null
+
+  const correction = side === 'long' ? localTarget.price - pullback.price : pullback.price - localTarget.price
+  const correctionAtr = correction / atr
+  if (correctionAtr < 0.5 || correctionAtr > 3) return null
+
+  const previous = candles.at(-2)!
+  const reversalConfirmed = side === 'long'
+    ? entry > previous.high && candles.at(-1)!.close > candles.at(-1)!.open
+    : entry < previous.low && candles.at(-1)!.close < candles.at(-1)!.open
+  if (!reversalConfirmed) return null
+
+  const buffer = atr * 0.25
+  const stopPrice = side === 'long' ? pullback.price - buffer : pullback.price + buffer
+  const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
+  const rewardToTarget = side === 'long' ? localTarget.price - entry : entry - localTarget.price
+  if (risk <= 0 || rewardToTarget < risk) return null
+
+  const stop: StopProposal = {
+    side,
+    entry,
+    price: stopPrice,
+    distancePercent: (risk / entry) * 100,
+    distanceAtr: risk / atr,
   }
-
-  const risk = Math.abs(stop.entry - stop.price)
-  const direction = stop.side === 'long' ? 1 : -1
-  const tp1 = stop.entry + direction * risk
-  const tp2 = stop.entry + direction * risk * 2
+  const direction = side === 'long' ? 1 : -1
   return {
     stop,
     takeProfits: [
-      { id: 'TP1', price: tp1, share: 30, riskMultiple: 1 },
-      { id: 'TP2', price: tp2, share: 40, riskMultiple: 2 },
+      { id: 'TP1', price: localTarget.price, share: 50, riskMultiple: rewardToTarget / risk },
+      { id: 'TP2', price: entry + direction * risk * 3, share: 50, riskMultiple: 3 },
     ],
-    runner: {
-      share: 30,
-      activationPrice: tp2,
-      description: 'После TP2 вести по 5m swing с буфером 0.25 ATR',
-    },
+    pullback: { localTarget: localTarget.price, correctionAtr },
   }
 }

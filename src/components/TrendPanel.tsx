@@ -63,7 +63,7 @@ export default function TrendPanel({ analyses, loading, error, tradePlan }: Tren
             <span>ENTRY {formatPrice(tradePlan.stop.entry)}</span>
             <strong>STOP {formatPrice(tradePlan.stop.price)} · {tradePlan.stop.distancePercent!.toFixed(2)}%</strong>
             {tradePlan.takeProfits.map((target) => <span key={target.id}>{target.id} {formatPrice(target.price)} · {target.riskMultiple}R · {target.share}%</span>)}
-            <span className="runner">RUNNER {tradePlan.runner.share}% · после {formatPrice(tradePlan.runner.activationPrice)}</span>
+            <span className="pullback">КОРРЕКЦИЯ ОСТАНОВЛЕНА · {tradePlan.pullback.correctionAtr.toFixed(1)} ATR</span>
           </> : <span>{tradePlan.stop.reason}</span>}
         </div>}
       </>}

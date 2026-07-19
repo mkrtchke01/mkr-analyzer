@@ -65,7 +65,7 @@ export default function App() {
           try {
             const candles = await Promise.all(ANALYSIS_TIMEFRAMES.map((item) => getCandles(currentSymbol, item, 120)))
             const analyses = candles.map((items, index) => analyzeTrend(items, ANALYSIS_TIMEFRAMES[index]))
-            const setup = getSetupSignal(analyses)
+            const setup = getSetupSignal(analyses, candles[3])
             if (setup) found[currentSymbol] = setup
           } catch {
             // A single unavailable market must not interrupt the complete scan.
@@ -97,8 +97,9 @@ export default function App() {
         if (!disposed) {
           const analyses = candles.map((items, index) => analyzeTrend(items, ANALYSIS_TIMEFRAMES[index]))
           setTrendAnalyses(analyses)
-          setTradePlan(calculateTradePlan(candles[3], getOverallTrend(analyses)))
-          const setup = getSetupSignal(analyses)
+          const nextTradePlan = calculateTradePlan(candles[3], getOverallTrend(analyses))
+          setTradePlan(nextTradePlan)
+          const setup = getSetupSignal(analyses, candles[3])
           setMarketSetups((previous) => {
             const next = { ...previous }
             if (setup) next[symbol] = setup

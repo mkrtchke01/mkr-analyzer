@@ -73,14 +73,6 @@ export default function PriceChart({ symbol, timeframe, tradePlan, onStatusChang
 
     const { stop, takeProfits } = tradePlan
     tradeLinesRef.current.push(series.createPriceLine({
-      price: stop.entry,
-      color: '#6fa8ff',
-      lineWidth: 1,
-      lineStyle: LineStyle.Dotted,
-      axisLabelVisible: true,
-      title: 'ENTRY',
-    }))
-    tradeLinesRef.current.push(series.createPriceLine({
       price: stopPrice,
       color: '#ff667a',
       lineWidth: 1,
