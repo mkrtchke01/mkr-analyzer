@@ -6,7 +6,7 @@ export default async function handler(request: any, response: any) {
   try {
     const state = request.query?.state === 'closed' ? 'closed' : 'open'
     const status = state === 'closed' ? 'in.(tp2,stop,expired,ambiguous)' : 'in.(active,tp1)'
-    const records = await supabaseRequest<any[]>(`/rest/v1/signals?select=*&status=${encodeURIComponent(status)}&order=detected_at.desc&limit=50`)
+    const records = await supabaseRequest<any[]>(`/rest/v1/mkr_signals?select=*&status=${encodeURIComponent(status)}&order=detected_at.desc&limit=50`)
     response.setHeader('Cache-Control', 'no-store')
     return response.status(200).json({
       signals: records.map((record) => ({

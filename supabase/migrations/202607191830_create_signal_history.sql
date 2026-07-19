@@ -1,4 +1,4 @@
-create table if not exists public.signals (
+create table if not exists public.mkr_signals (
   id uuid primary key,
   fingerprint text not null unique,
   symbol text not null,
@@ -24,12 +24,12 @@ create table if not exists public.signals (
   created_at timestamptz not null default now()
 );
 
-create index if not exists signals_open_status_idx on public.signals (status, detected_at desc);
-create index if not exists signals_symbol_idx on public.signals (symbol, detected_at desc);
+create index if not exists mkr_signals_open_status_idx on public.mkr_signals (status, detected_at desc);
+create index if not exists mkr_signals_symbol_idx on public.mkr_signals (symbol, detected_at desc);
 
-create table if not exists public.signal_events (
+create table if not exists public.mkr_signal_events (
   id uuid primary key default gen_random_uuid(),
-  signal_id uuid not null references public.signals(id) on delete cascade,
+  signal_id uuid not null references public.mkr_signals(id) on delete cascade,
   type text not null check (type in ('detected', 'tp1', 'tp2', 'stop', 'expired', 'ambiguous')),
   price numeric not null,
   candle_time bigint not null,
@@ -37,10 +37,10 @@ create table if not exists public.signal_events (
   created_at timestamptz not null default now()
 );
 
-create index if not exists signal_events_signal_idx on public.signal_events (signal_id, candle_time);
+create index if not exists mkr_signal_events_signal_idx on public.mkr_signal_events (signal_id, candle_time);
 
-alter table public.signals enable row level security;
-alter table public.signal_events enable row level security;
+alter table public.mkr_signals enable row level security;
+alter table public.mkr_signal_events enable row level security;
 
 insert into storage.buckets (id, name, public)
 values ('signal-snapshots', 'signal-snapshots', true)

@@ -39,7 +39,7 @@ const runWithConcurrency = async <T>(items: T[], task: (item: T) => Promise<void
 const closedCandles = (candles: Candle[]) => candles.slice(0, -1)
 
 async function createEvent(signalId: string, type: string, candle: Candle, details: Record<string, unknown> = {}) {
-  await supabaseRequest('/rest/v1/signal_events', {
+  await supabaseRequest('/rest/v1/mkr_signal_events', {
     method: 'POST',
     headers: { Prefer: 'return=minimal' },
     body: JSON.stringify({ signal_id: signalId, type, price: candle.close, candle_time: candle.time, details }),
@@ -47,7 +47,7 @@ async function createEvent(signalId: string, type: string, candle: Candle, detai
 }
 
 async function patchSignal(id: string, values: Record<string, unknown>) {
-  await supabaseRequest(`/rest/v1/signals?id=eq.${encodeURIComponent(id)}`, {
+  await supabaseRequest(`/rest/v1/mkr_signals?id=eq.${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { Prefer: 'return=minimal' },
     body: JSON.stringify(values),
@@ -133,7 +133,7 @@ async function scanMarket(symbol: string) {
     candles_snapshot: entryCandles.slice(-100),
     snapshot_path: snapshotPath,
   }
-  const created = await supabaseRequest<Array<{ id: string }>>('/rest/v1/signals?on_conflict=fingerprint', {
+  const created = await supabaseRequest<Array<{ id: string }>>('/rest/v1/mkr_signals?on_conflict=fingerprint', {
     method: 'POST',
     headers: { Prefer: 'resolution=ignore-duplicates,return=representation' },
     body: JSON.stringify(payload),
@@ -155,7 +155,7 @@ export default async function handler(request: any, response: any) {
   if (!isAuthorizedCronRequest(request.headers.authorization)) return response.status(401).json({ error: 'Unauthorized' })
 
   try {
-    const openSignals = await supabaseRequest<StoredSignal[]>('/rest/v1/signals?select=*&status=in.(active,tp1)')
+    const openSignals = await supabaseRequest<StoredSignal[]>('/rest/v1/mkr_signals?select=*&status=in.(active,tp1)')
     let monitored = 0
     await runWithConcurrency(openSignals, async (signal) => {
       try {
