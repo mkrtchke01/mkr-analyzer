@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatPrice, klineEventToCandle, klineRowsToCandles } from './bybit'
+import { filterMarkets, formatPrice, klineEventToCandle, klineRowsToCandles } from './bybit'
 
 describe('Bybit market data conversion', () => {
   it('converts reverse-ordered REST klines into chronological candles', () => {
@@ -27,5 +27,17 @@ describe('Bybit market data conversion', () => {
   it('formats small and large prices for the market list', () => {
     expect(formatPrice(65321.987)).toBe('65,321.99')
     expect(formatPrice(0.0000123456)).toBe('0.00001235')
+  })
+
+  it('keeps only liquid non-stablecoin markets', () => {
+    const markets = filterMarkets([
+      { symbol: 'BTCUSDT', price: 64000, change: 1, turnover: 50_000_000 },
+      { symbol: 'ETHUSDT', price: 3000, change: -1, turnover: 20_000_000 },
+      { symbol: 'SOLUSDT', price: 150, change: 2, turnover: 19_999_999 },
+      { symbol: 'USDCUSDT', price: 1, change: 0, turnover: 100_000_000 },
+      { symbol: 'USDTUSDT', price: 1, change: 0, turnover: 100_000_000 },
+    ])
+
+    expect(markets.map((market) => market.symbol)).toEqual(['BTCUSDT', 'ETHUSDT'])
   })
 })

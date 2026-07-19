@@ -13,6 +13,9 @@ export type Market = {
   turnover: number
 }
 
+const MIN_TURNOVER = 20_000_000
+const STABLE_BASE_ASSETS = new Set(['USDC', 'USDT'])
+
 type KlineResponse = {
   result?: { list?: string[][] }
 }
@@ -53,12 +56,21 @@ export function formatPrice(value: number): string {
   return value.toLocaleString('en-US', { maximumFractionDigits: 8 })
 }
 
+export function filterMarkets(markets: Market[]): Market[] {
+  return markets
+    .filter((market) => {
+      const baseAsset = market.symbol.replace('USDT', '')
+      return !STABLE_BASE_ASSETS.has(baseAsset) && market.turnover >= MIN_TURNOVER
+    })
+    .sort((left, right) => right.turnover - left.turnover)
+}
+
 export async function getMarkets(): Promise<Market[]> {
   const response = await fetch(`${apiBase}/tickers?category=spot`)
   if (!response.ok) throw new Error('Не удалось загрузить рынки Bybit')
   const payload = (await response.json()) as TickerResponse
 
-  return (payload.result?.list ?? [])
+  const markets = (payload.result?.list ?? [])
     .filter((item) => item.symbol.endsWith('USDT') && Number(item.turnover24h) > 0)
     .map((item) => ({
       symbol: item.symbol,
@@ -66,7 +78,8 @@ export async function getMarkets(): Promise<Market[]> {
       change: toNumber(item.price24hPcnt) * 100,
       turnover: toNumber(item.turnover24h),
     }))
-    .sort((left, right) => right.turnover - left.turnover)
+
+  return filterMarkets(markets)
 }
 
 export async function getCandles(symbol: string): Promise<Candle[]> {
