@@ -19,7 +19,12 @@ const chartOptions = {
     horzLines: { color: 'rgba(255, 255, 255, 0.045)' },
   },
   rightPriceScale: { borderColor: 'rgba(255, 255, 255, 0.08)' },
-  timeScale: { borderColor: 'rgba(255, 255, 255, 0.08)', timeVisible: true, secondsVisible: false },
+  timeScale: {
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    timeVisible: true,
+    secondsVisible: false,
+    rightOffset: 10,
+  },
 }
 
 export default function PriceChart({ symbol, timeframe, onStatusChange, onPriceChange }: PriceChartProps) {
