@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { ColorType, createChart, type CandlestickData, type IChartApi, type ISeriesApi, type Time } from 'lightweight-charts'
-import { chartWebSocketUrl, getCandles, klineEventToCandle, type Candle } from '../lib/bybit'
+import { chartWebSocketUrl, getCandles, klineEventToCandle, timeframeToBybitInterval, type Candle, type Timeframe } from '../lib/bybit'
 
 type PriceChartProps = {
   symbol: string
+  timeframe: Timeframe
   onStatusChange: (status: 'loading' | 'live' | 'offline') => void
   onPriceChange: (price: number) => void
 }
@@ -21,7 +22,7 @@ const chartOptions = {
   timeScale: { borderColor: 'rgba(255, 255, 255, 0.08)', timeVisible: true, secondsVisible: false },
 }
 
-export default function PriceChart({ symbol, onStatusChange, onPriceChange }: PriceChartProps) {
+export default function PriceChart({ symbol, timeframe, onStatusChange, onPriceChange }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -67,7 +68,7 @@ export default function PriceChart({ symbol, onStatusChange, onPriceChange }: Pr
     const connect = async () => {
       onStatusChange('loading')
       try {
-        const candles = await getCandles(symbol)
+        const candles = await getCandles(symbol, timeframe)
         if (disposed) return
         series.setData(candles as CandlestickData<Time>[])
         const latest = candles.at(-1)
@@ -78,10 +79,12 @@ export default function PriceChart({ symbol, onStatusChange, onPriceChange }: Pr
 
       if (disposed) return
       socket = new WebSocket(chartWebSocketUrl())
-      socket.onopen = () => socket?.send(JSON.stringify({ op: 'subscribe', args: [`kline.1.${symbol}`] }))
+      const interval = timeframeToBybitInterval(timeframe)
+      const topic = `kline.${interval}.${symbol}`
+      socket.onopen = () => socket?.send(JSON.stringify({ op: 'subscribe', args: [topic] }))
       socket.onmessage = (message) => {
         const payload = JSON.parse(message.data) as { topic?: string; data?: Array<Record<string, string | number>> }
-        if (payload.topic === `kline.1.${symbol}` && payload.data?.[0]) {
+        if (payload.topic === topic && payload.data?.[0]) {
           displayCandle(klineEventToCandle(payload.data[0]))
           onStatusChange('live')
         }
@@ -101,7 +104,7 @@ export default function PriceChart({ symbol, onStatusChange, onPriceChange }: Pr
       if (retryId) window.clearTimeout(retryId)
       socket?.close()
     }
-  }, [symbol, onPriceChange, onStatusChange])
+  }, [symbol, timeframe, onPriceChange, onStatusChange])
 
   return <div className="chart-canvas" ref={containerRef} aria-label={`График ${symbol}`} />
 }

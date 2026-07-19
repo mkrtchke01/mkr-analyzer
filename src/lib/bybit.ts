@@ -13,6 +13,16 @@ export type Market = {
   turnover: number
 }
 
+export const TIMEFRAMES = {
+  '5m': '5',
+  '15m': '15',
+  '1h': '60',
+  '4h': '240',
+  '1d': 'D',
+} as const
+
+export type Timeframe = keyof typeof TIMEFRAMES
+
 const MIN_TURNOVER = 10_000_000
 const STABLE_BASE_ASSETS = new Set(['USDC', 'USDT'])
 
@@ -56,6 +66,10 @@ export function formatPrice(value: number): string {
   return value.toLocaleString('en-US', { maximumFractionDigits: 8 })
 }
 
+export function timeframeToBybitInterval(timeframe: Timeframe): string {
+  return TIMEFRAMES[timeframe]
+}
+
 export function filterMarkets(markets: Market[]): Market[] {
   return markets
     .filter((market) => {
@@ -82,8 +96,8 @@ export async function getMarkets(): Promise<Market[]> {
   return filterMarkets(markets)
 }
 
-export async function getCandles(symbol: string): Promise<Candle[]> {
-  const params = new URLSearchParams({ category: 'linear', symbol, interval: '1', limit: '500' })
+export async function getCandles(symbol: string, timeframe: Timeframe): Promise<Candle[]> {
+  const params = new URLSearchParams({ category: 'linear', symbol, interval: timeframeToBybitInterval(timeframe), limit: '500' })
   const response = await fetch(`${apiBase}/kline?${params}`)
   if (!response.ok) throw new Error('Не удалось загрузить историю графика')
   const payload = (await response.json()) as KlineResponse
