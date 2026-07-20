@@ -1,12 +1,16 @@
 import { useEffect, useRef } from 'react'
 import { ColorType, createChart, LineStyle, type CandlestickData, type IChartApi, type IPriceLine, type ISeriesApi, type Time } from 'lightweight-charts'
 import { chartWebSocketUrl, getCandles, klineEventToCandle, timeframeToBybitInterval, type Candle, type Timeframe } from '../lib/bybit'
-import { SETUP_META, type TradePlan } from '../lib/trend'
+import { SETUP_META, type ManualChartLevel, type TradePlan } from '../lib/trend'
+import { ChartLevelsPrimitive } from './ChartLevels'
 
 type PriceChartProps = {
   symbol: string
   timeframe: Timeframe
   tradePlans: TradePlan[]
+  manualLevels: ManualChartLevel[]
+  manualLevelMode: boolean
+  onAddManualLevel: (level: Omit<ManualChartLevel, 'id'>) => void
   onStatusChange: (status: 'loading' | 'live' | 'offline') => void
   onPriceChange: (price: number) => void
 }
@@ -25,7 +29,9 @@ const chartOptions = {
     borderColor: 'rgba(255, 255, 255, 0.08)',
     timeVisible: true,
     secondsVisible: false,
-    rightOffset: 10,
+    rightOffset: 5,
+    barSpacing: 2,
+    minBarSpacing: 1,
   },
 }
 
@@ -33,7 +39,19 @@ export function enableInitialVerticalPanning(chart: Pick<IChartApi, 'priceScale'
   chart.priceScale('right').applyOptions({ autoScale: false })
 }
 
-export default function PriceChart({ symbol, timeframe, tradePlans, onStatusChange, onPriceChange }: PriceChartProps) {
+export function resetPriceScaleForNewCandles(chart: Pick<IChartApi, 'priceScale'>) {
+  chart.priceScale('right').applyOptions({ autoScale: true })
+}
+
+export function fitChartHistory(chart: Pick<IChartApi, 'timeScale'>) {
+  chart.timeScale().fitContent()
+}
+
+export function manualLevelFromChartPoint(price: number, time: Time): Omit<ManualChartLevel, 'id'> {
+  return { price, time: Number(time) }
+}
+
+export default function PriceChart({ symbol, timeframe, tradePlans, manualLevels, manualLevelMode, onAddManualLevel, onStatusChange, onPriceChange }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -98,6 +116,32 @@ export default function PriceChart({ symbol, timeframe, tradePlans, onStatusChan
   }, [tradePlans])
 
   useEffect(() => {
+    const series = seriesRef.current
+    if (!series) return
+
+    const levelPrimitive = new ChartLevelsPrimitive(manualLevels)
+    series.attachPrimitive(levelPrimitive)
+    return () => series.detachPrimitive(levelPrimitive)
+  }, [manualLevels])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    const series = seriesRef.current
+    if (!chart || !series || !manualLevelMode) return
+
+    const addLevelAtClick = (event: { point?: { x: number, y: number } }) => {
+      if (!event.point) return
+      const price = series.coordinateToPrice(event.point.y)
+      const time = chart.timeScale().coordinateToTime(event.point.x)
+      if (price === null || time === null) return
+      onAddManualLevel(manualLevelFromChartPoint(price, time))
+    }
+
+    chart.subscribeClick(addLevelAtClick)
+    return () => chart.unsubscribeClick(addLevelAtClick)
+  }, [manualLevelMode, onAddManualLevel])
+
+  useEffect(() => {
     let socket: WebSocket | undefined
     let disposed = false
     let retryId: number | undefined
@@ -115,7 +159,9 @@ export default function PriceChart({ symbol, timeframe, tradePlans, onStatusChan
       try {
         const candles = await getCandles(symbol, timeframe)
         if (disposed) return
+        resetPriceScaleForNewCandles(chart)
         series.setData(candles as unknown as CandlestickData<Time>[])
+        fitChartHistory(chart)
         enableInitialVerticalPanning(chart)
         const latest = candles.at(-1)
         if (latest) onPriceChange(latest.close)

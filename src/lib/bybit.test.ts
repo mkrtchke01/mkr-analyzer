@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { filterMarketList, filterMarkets, formatPrice, getMarkets, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, timeframeToBybitInterval } from './bybit'
+import { filterMarketList, filterMarkets, formatPrice, getCandles, getMarkets, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, timeframeToBybitInterval } from './bybit'
 
 describe('Bybit market data conversion', () => {
   it('converts reverse-ordered REST klines into chronological candles', () => {
@@ -80,6 +80,15 @@ describe('Bybit market data conversion', () => {
 
     await expect(getMarkets()).rejects.toThrow('Не удалось загрузить рынки Bybit (HTTP 403)')
 
+    fetchMock.mockRestore()
+  })
+
+  it('loads one thousand candles for the chart by default', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ result: { list: [] } })))
+
+    await getCandles('BTCUSDT', '5m')
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('limit=1000')
     fetchMock.mockRestore()
   })
 })

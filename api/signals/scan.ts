@@ -11,7 +11,7 @@ const MAX_CONCURRENCY = 5
 type StoredSignal = {
   id: string
   symbol: string
-  setup_type: 'trend-reclaim' | 'level-breakout'
+  setup_type: 'trend-reclaim' | 'level-breakout' | 'breakout-retest'
   side: 'long' | 'short'
   status: 'active' | 'tp1'
   entry_price: string

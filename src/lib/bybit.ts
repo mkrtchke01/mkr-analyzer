@@ -112,7 +112,7 @@ export async function getMarkets(): Promise<Market[]> {
   return filterMarkets(markets)
 }
 
-export async function getCandles(symbol: string, timeframe: Timeframe, limit = 500): Promise<Candle[]> {
+export async function getCandles(symbol: string, timeframe: Timeframe, limit = 1000): Promise<Candle[]> {
   const params = new URLSearchParams({ category: 'linear', symbol, interval: timeframeToBybitInterval(timeframe), limit: String(limit) })
   const response = await fetch(`${apiBase}/kline?${params}`)
   if (!response.ok) throw new Error(`Не удалось загрузить историю графика (HTTP ${response.status})`)

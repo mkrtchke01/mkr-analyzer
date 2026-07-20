@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateEma, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getSetupSignal, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateBreakoutRetestPlan, calculateEma, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getSetupSignal, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -44,6 +44,19 @@ const makeLevelBreakoutCandles = (): Candle[] => {
   set(97, 120.45, 120.7, 120.2, 120.5)
   set(98, 120.5, 120.75, 120.25, 120.55)
   set(99, 120.55, 120.8, 120.3, 120.75)
+  return candles
+}
+
+const makeBreakoutRetestCandles = (): Candle[] => {
+  const candles: Candle[] = Array.from({ length: 24 }, (_, index) => ({ time: index * 300, open: 100, high: 101, low: 99, close: 100, volume: 100 }))
+  const set = (index: number, open: number, high: number, low: number, close: number) => { candles[index] = { time: index * 300, open, high, low, close, volume: 150 } }
+  set(12, 103, 105, 102.8, 104)
+  set(18, 104, 106.5, 103.8, 106)
+  set(19, 106, 107, 105.8, 106.5)
+  set(20, 106.5, 107.2, 106, 106.8)
+  set(21, 106.8, 107, 104.8, 105.1)
+  set(22, 105.1, 105.8, 104.9, 105.2)
+  set(23, 105.2, 106.4, 105, 106)
   return candles
 }
 
@@ -120,5 +133,20 @@ describe('trend analysis', () => {
     expect(plan).toMatchObject({ setupType: 'level-breakout', stop: { side: 'short' } })
     expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
     expect(plan!.takeProfits[0]).toMatchObject({ riskMultiple: 1.5, price: plan!.stop.entry - risk * 1.5 })
+  })
+
+  it('builds a breakout-retest plan after a bullish reaction from the broken resistance', () => {
+    const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'strong-long')
+
+    expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'long' } })
+    expect(plan!.setupNote).toContain('Ретест пробитого уровня')
+    expect(plan!.stop.price).toBeLessThan(plan!.stop.entry)
+  })
+
+  it('mirrors the breakout-retest plan for a short after resistance retest', () => {
+    const plan = calculateBreakoutRetestPlan(mirrorCandles(makeBreakoutRetestCandles()), 'strong-short')
+
+    expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'short' } })
+    expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
   })
 })
