@@ -1,3 +1,4 @@
+import { marketInfoText, type MarketInfoSignal } from '../lib/marketInfo'
 import { getOverallTrend, type OverallTrend, type TradePlan, type TrendAnalysis, type TrendDirection } from '../lib/trend'
 import { formatPrice } from '../lib/bybit'
 
@@ -6,6 +7,7 @@ type TrendPanelProps = {
   loading: boolean
   error: boolean
   tradePlans: TradePlan[]
+  marketInfo: MarketInfoSignal[]
 }
 
 const timeframeRole: Record<TrendAnalysis['timeframe'], string> = {
@@ -28,7 +30,7 @@ const overallText: Record<OverallTrend, string> = {
   flat: 'ФЛЕТ / НЕТ СЕТАПА',
 }
 
-export default function TrendPanel({ analyses, loading, error, tradePlans }: TrendPanelProps) {
+export default function TrendPanel({ analyses, loading, error, tradePlans, marketInfo }: TrendPanelProps) {
   const overall = getOverallTrend(analyses)
 
   return (
@@ -58,6 +60,12 @@ export default function TrendPanel({ analyses, loading, error, tradePlans }: Tre
           <strong>{overallText[overall]}</strong>
           <small>{overall === 'flat' ? 'Временные интервалы не подтверждают единый сильный тренд' : 'Все таймфреймы подтверждают направление'}</small>
         </footer>
+        <section className="market-info" aria-label="Info">
+          <div className="eyebrow">INFO</div>
+          {marketInfo.length
+            ? <ul>{marketInfo.map((signal) => <li className={signal.side} key={`${signal.type}-${signal.timeframe}`}>{marketInfoText(signal)}</li>)}</ul>
+            : <p>Особых рыночных событий на 15m, 1h и 4h не обнаружено</p>}
+        </section>
         {tradePlans.map((tradePlan) => <div className={`trade-plan ${tradePlan.stop.side}`} key={tradePlan.setupType}>
           {tradePlan.stop.price ? <>
             <b className="setup-plan-name">{tradePlan.setupName} · {tradePlan.stop.side.toUpperCase()}</b>

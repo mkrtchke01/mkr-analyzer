@@ -5,6 +5,7 @@ import SignalHistory from './components/SignalHistory'
 import TrendPanel from './components/TrendPanel'
 import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, sortMarketsByTrend, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
 import { getSavedSignals, tradePlanFromSavedSignal, type SavedSignal } from './lib/signals'
+import { getMarketInfo, type MarketInfoSignal } from './lib/marketInfo'
 import { analyzeTrend, getTrendIndicator, SETUP_META, type ManualChartLevel, type RiskRewardBox, type SetupSignal, type TrendAnalysis, type TrendIndicator } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
@@ -53,6 +54,7 @@ export default function App() {
   const [setupScanning, setSetupScanning] = useState(false)
   const [savedOpenSignals, setSavedOpenSignals] = useState<SavedSignal[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [marketInfo, setMarketInfo] = useState<MarketInfoSignal[]>([])
 
   useEffect(() => {
     void getMarkets()
@@ -108,14 +110,21 @@ export default function App() {
     const loadTrendAnalyses = async () => {
       setTrendLoading(true)
       try {
-        const candles = await Promise.all(ANALYSIS_TIMEFRAMES.map((item) => getCandles(symbol, item, 1000)))
+          const candles = await Promise.all(ANALYSIS_TIMEFRAMES.map((item) => getCandles(symbol, item, 1000)))
         if (!disposed) {
           const analyses = candles.map((items, index) => analyzeTrend(items, ANALYSIS_TIMEFRAMES[index]))
           setTrendAnalyses(analyses)
+          setMarketInfo(candles.flatMap((items, index) => {
+            const infoTimeframe = ANALYSIS_TIMEFRAMES[index]
+            return infoTimeframe === '4h' || infoTimeframe === '1h' || infoTimeframe === '15m' ? getMarketInfo(items, infoTimeframe) : []
+          }))
           setTrendError(false)
         }
       } catch {
-        if (!disposed) setTrendError(true)
+        if (!disposed) {
+          setTrendError(true)
+          setMarketInfo([])
+        }
       } finally {
         if (!disposed) setTrendLoading(false)
       }
@@ -294,7 +303,7 @@ export default function App() {
             <span>Источник: Bybit public market data</span>
           </footer>
         </section>
-        <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} tradePlans={fixedTradePlans} />
+        <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} tradePlans={fixedTradePlans} marketInfo={marketInfo} />
       </section>
 
       <aside className="markets-panel">
