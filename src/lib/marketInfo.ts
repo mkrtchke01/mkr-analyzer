@@ -6,12 +6,15 @@ export type MarketInfoType = 'bullish-divergence' | 'bearish-divergence' | 'brea
 export type DivergencePoint = { priceTime: number, price: number, rsiTime: number, rsiValue: number }
 export type DivergenceInfo = { first: DivergencePoint, second: DivergencePoint }
 export type MarketInfoLevel = { time: number, price: number, eventTime: number }
+export type MarketInfoPoint = { time: number, price: number }
+export type CorrectionInfo = { origin: MarketInfoPoint, impulseEnd: MarketInfoPoint, correctionEnd: MarketInfoPoint }
 export type MarketInfoSignal = {
   type: MarketInfoType
   timeframe: Extract<Timeframe, '15m' | '1h' | '4h'>
   side: 'bullish' | 'bearish'
   divergence?: DivergenceInfo
   level?: MarketInfoLevel
+  correction?: CorrectionInfo
 }
 
 type Swing = { index: number, price: number }
@@ -132,7 +135,9 @@ function findConsolidation(candles: Candle[], atr: number): ConsolidationState {
   return undefined
 }
 
-function findImpulseCorrection(candles: Candle[], atr: number): Side | undefined {
+type CorrectionState = { side: Side, correction: CorrectionInfo } | undefined
+
+function findImpulseCorrection(candles: Candle[], atr: number): CorrectionState {
   const lastIndex = candles.length - 1
   const allHighs = swings(candles, 'high')
   const allLows = swings(candles, 'low')
@@ -141,21 +146,39 @@ function findImpulseCorrection(candles: Candle[], atr: number): Side | undefined
 
   for (const bullishPeak of [...highs].reverse()) {
     const origin = allLows.filter((point) => point.index < bullishPeak.index && bullishPeak.index - point.index <= 80).at(-1)
-    const correctionLow = Math.min(...candles.slice(bullishPeak.index + 1).map((candle) => candle.low))
+    const correctionCandle = candles.slice(bullishPeak.index + 1).reduce((lowest, candle) => candle.low < lowest.low ? candle : lowest)
     if (origin) {
       const impulse = bullishPeak.price - origin.price
-      const retracement = (bullishPeak.price - correctionLow) / impulse
-      if (impulse >= atr * 4 && retracement >= 0.382 && retracement <= 0.786 && candles.at(-1)!.close < bullishPeak.price - atr * 0.2) return 'bullish'
+      const retracement = (bullishPeak.price - correctionCandle.low) / impulse
+      if (impulse >= atr * 4 && retracement >= 0.382 && retracement <= 0.786 && candles.at(-1)!.close < bullishPeak.price - atr * 0.2) {
+        return {
+          side: 'bullish',
+          correction: {
+            origin: { time: candles[origin.index].time, price: origin.price },
+            impulseEnd: { time: candles[bullishPeak.index].time, price: bullishPeak.price },
+            correctionEnd: { time: correctionCandle.time, price: correctionCandle.low },
+          },
+        }
+      }
     }
   }
 
   for (const bearishTrough of [...lows].reverse()) {
     const origin = allHighs.filter((point) => point.index < bearishTrough.index && bearishTrough.index - point.index <= 80).at(-1)
-    const correctionHigh = Math.max(...candles.slice(bearishTrough.index + 1).map((candle) => candle.high))
+    const correctionCandle = candles.slice(bearishTrough.index + 1).reduce((highest, candle) => candle.high > highest.high ? candle : highest)
     if (origin) {
       const impulse = origin.price - bearishTrough.price
-      const retracement = (correctionHigh - bearishTrough.price) / impulse
-      if (impulse >= atr * 4 && retracement >= 0.382 && retracement <= 0.786 && candles.at(-1)!.close > bearishTrough.price + atr * 0.2) return 'bearish'
+      const retracement = (correctionCandle.high - bearishTrough.price) / impulse
+      if (impulse >= atr * 4 && retracement >= 0.382 && retracement <= 0.786 && candles.at(-1)!.close > bearishTrough.price + atr * 0.2) {
+        return {
+          side: 'bearish',
+          correction: {
+            origin: { time: candles[origin.index].time, price: origin.price },
+            impulseEnd: { time: candles[bearishTrough.index].time, price: bearishTrough.price },
+            correctionEnd: { time: correctionCandle.time, price: correctionCandle.high },
+          },
+        }
+      }
     }
   }
 
@@ -177,7 +200,7 @@ export function getMarketInfo(candles: Candle[], timeframe: MarketInfoSignal['ti
   if (consolidation) return [...result, { type: 'consolidation', timeframe, side: consolidation.side, level: consolidation.level }]
 
   const correction = findImpulseCorrection(candles, atr)
-  if (correction) result.push({ type: 'impulse-correction', timeframe, side: correction })
+  if (correction) result.push({ type: 'impulse-correction', timeframe, side: correction.side, correction: correction.correction })
   return result
 }
 

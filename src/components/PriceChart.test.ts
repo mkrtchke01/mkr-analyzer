@@ -49,6 +49,6 @@ describe('PriceChart options', () => {
 
     focusChartOnTime({ timeScale: () => ({ setVisibleRange }) } as never, '4h', 1_720_000_000)
 
-    expect(setVisibleRange).toHaveBeenCalledWith({ from: 1_719_352_000, to: 1_720_648_000 })
+    expect(setVisibleRange).toHaveBeenCalledWith({ from: 1_719_136_000, to: 1_720_864_000 })
   })
 })

@@ -264,7 +264,9 @@ export default function App() {
     })
   }, [symbol])
   const showMarketInfo = useCallback((signal: MarketInfoSignal) => {
-    const focusTime = signal.divergence?.second.priceTime ?? signal.level?.eventTime
+    const focusTime = signal.divergence?.second.priceTime
+      ?? signal.level?.eventTime
+      ?? (signal.correction ? Math.round((signal.correction.origin.time + signal.correction.correctionEnd.time) / 2) : undefined)
     if (!focusTime) return
 
     if (signal.divergence) {
@@ -298,6 +300,25 @@ export default function App() {
         const current = previous[symbol] ?? []
         if (current.some((item) => item.id === id)) return previous
         return { ...previous, [symbol]: [...current, { id, time: level.time, price: level.price, endTime: level.eventTime, endPrice: level.price }] }
+      })
+    }
+
+    if (signal.correction) {
+      const { origin, impulseEnd, correctionEnd } = signal.correction
+      const impulse = impulseEnd.price - origin.price
+      const fibLevels = [0.382, 0.5, 0.618].map((ratio) => ({
+        ratio,
+        price: impulseEnd.price - impulse * ratio,
+      }))
+      const prefix = `correction-${signal.timeframe}-${origin.time}-${impulseEnd.time}-${correctionEnd.time}`
+      const correctionLines: ManualChartLevel[] = [
+        { id: `${prefix}-impulse`, time: origin.time, price: origin.price, endTime: impulseEnd.time, endPrice: impulseEnd.price, color: '#a78bfa', label: 'Импульс', dashed: false },
+        { id: `${prefix}-pullback`, time: impulseEnd.time, price: impulseEnd.price, endTime: correctionEnd.time, endPrice: correctionEnd.price, color: '#f2bf67', label: 'Коррекция', dashed: false },
+        ...fibLevels.map(({ ratio, price }) => ({ id: `${prefix}-fib-${ratio}`, time: impulseEnd.time, price, endTime: correctionEnd.time, endPrice: price, color: '#6bd5ff', label: `Fib ${(ratio * 100).toFixed(ratio === 0.5 ? 0 : 1)}%`, dashed: true })),
+      ]
+      setManualLevelsBySymbol((previous) => {
+        const current = previous[symbol] ?? []
+        return { ...previous, [symbol]: [...current, ...correctionLines.filter((line) => !current.some((item) => item.id === line.id))] }
       })
     }
     setTimeframe(signal.timeframe)

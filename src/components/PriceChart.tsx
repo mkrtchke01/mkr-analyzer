@@ -63,7 +63,7 @@ export function fitChartHistory(chart: Pick<IChartApi, 'timeScale'>) {
 
 export function focusChartOnTime(chart: Pick<IChartApi, 'timeScale'>, timeframe: Timeframe, time: number) {
   const secondsByTimeframe: Record<Timeframe, number> = { '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 }
-  const radius = secondsByTimeframe[timeframe] * 45
+  const radius = secondsByTimeframe[timeframe] * 60
   chart.timeScale().setVisibleRange({ from: (time - radius) as Time, to: (time + radius) as Time })
 }
 

@@ -68,7 +68,16 @@ describe('market info signals', () => {
     setCandle(candles, 98, 110.1, 111, 109.8, 110.3)
     setCandle(candles, 99, 110.3, 111, 109.9, 110.2)
 
-    expect(getMarketInfo(candles, '4h')).toContainEqual({ type: 'impulse-correction', side: 'bullish', timeframe: '4h' })
+    expect(getMarketInfo(candles, '4h')).toEqual(expect.arrayContaining([expect.objectContaining({
+      type: 'impulse-correction',
+      side: 'bullish',
+      timeframe: '4h',
+      correction: {
+        origin: { time: 60, price: 98 },
+        impulseEnd: { time: 75, price: 120 },
+        correctionEnd: { time: 94, price: 108.9 },
+      },
+    })]))
   })
 
   it('writes the requested text for every Info event', () => {

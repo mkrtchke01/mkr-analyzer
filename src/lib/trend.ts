@@ -51,6 +51,9 @@ export type ManualChartLevel = {
   time: number
   endPrice: number
   endTime: number
+  color?: string
+  label?: string
+  dashed?: boolean
 }
 
 export type TrendIndicator = {

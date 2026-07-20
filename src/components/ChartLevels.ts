@@ -34,6 +34,11 @@ class ChartLevelsRenderer implements ISeriesPrimitivePaneRenderer {
         context.moveTo(level.x * horizontalPixelRatio, level.y * verticalPixelRatio)
         context.lineTo(level.endX * horizontalPixelRatio, level.endY * verticalPixelRatio)
         context.stroke()
+        if (level.label) {
+          context.fillStyle = level.color
+          context.font = `${10 * verticalPixelRatio}px "DM Mono", monospace`
+          context.fillText(level.label, (level.endX + 6) * horizontalPixelRatio, (level.endY - 5) * verticalPixelRatio)
+        }
       })
       context.restore()
     })
@@ -58,8 +63,8 @@ class ChartLevelsPaneView implements ISeriesPrimitivePaneView {
         y,
         endY,
         lineWidth: 2,
-        color: '#f5bc5b',
-        dashed: true,
+        color: level.color ?? '#f5bc5b',
+        dashed: level.dashed ?? true,
       }]
     }))
   }

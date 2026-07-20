@@ -64,7 +64,7 @@ export default function TrendPanel({ analyses, loading, error, tradePlans, marke
         <section className="market-info" aria-label="Info">
           <div className="eyebrow">INFO</div>
           {marketInfo.length
-            ? <ul>{marketInfo.map((signal) => <li className={signal.side} key={`${signal.type}-${signal.timeframe}`}><span>{marketInfoText(signal)}</span>{(signal.divergence || signal.level) && <button onClick={() => onShowMarketInfo(signal)}>Показать</button>}</li>)}</ul>
+            ? <ul>{marketInfo.map((signal) => <li className={signal.side} key={`${signal.type}-${signal.timeframe}`}><span>{marketInfoText(signal)}</span>{(signal.divergence || signal.level || signal.correction) && <button onClick={() => onShowMarketInfo(signal)}>Показать</button>}</li>)}</ul>
             : <p>Особых рыночных событий на 15m, 1h и 4h не обнаружено</p>}
         </section>
         {tradePlans.map((tradePlan) => <div className={`trade-plan ${tradePlan.stop.side}`} key={tradePlan.setupType}>
