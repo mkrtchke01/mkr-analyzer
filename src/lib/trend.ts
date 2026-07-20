@@ -1,15 +1,17 @@
 import type { Candle, Timeframe } from './bybit.js'
-import type { MarketInfoSignal } from './marketInfo.js'
-
 export type TrendDirection = 'bullish' | 'bearish' | 'flat'
 export type OverallTrend = 'strong-long' | 'strong-short' | 'flat'
-export type SetupType = 'trend-reclaim' | 'level-breakout' | 'breakout-retest' | 'consensus'
+export type SetupType = 'trend-reclaim' | 'level-breakout' | 'false-breakout' | 'bottom-reversal' | 'top-reversal' | 'breakout-retest' | 'consensus'
 export type SetupSignal = { type: SetupType; side: 'long' | 'short' }
 
 export const SETUP_META: Record<SetupType, { shortName: string; name: string }> = {
   'trend-reclaim': { shortName: 'TR', name: 'Trend Reclaim' },
-  'level-breakout': { shortName: 'LB', name: 'Level Breakout' },
-  'breakout-retest': { shortName: 'BR', name: 'Breakout Retest' },
+  'level-breakout': { shortName: 'LB', name: 'Пробой уровня' },
+  'false-breakout': { shortName: 'FB', name: 'Ложный пробой' },
+  'bottom-reversal': { shortName: 'RL', name: 'Разворот от дна' },
+  'top-reversal': { shortName: 'RH', name: 'Разворот от вершины' },
+  'breakout-retest': { shortName: 'BR', name: 'Пробой + ретест' },
+  // Оставляем метаданные только для уже сохранённых исторических сигналов CS.
   consensus: { shortName: 'CS', name: 'Directional Consensus' },
 }
 
@@ -331,42 +333,29 @@ export function calculateTrendReclaimPlan(candles: Candle[], trend: OverallTrend
   }
 }
 
-const CONSOLIDATION_CANDLES = 5
-
 export function calculateLevelBreakoutPlan(candles: Candle[], trend: OverallTrend): TradePlan | null {
-  if (trend === 'flat' || candles.length < PERIOD + CONSOLIDATION_CANDLES + 8) return null
+  if (trend === 'flat' || candles.length < PERIOD + 5) return null
 
   const side = trend === 'strong-long' ? 'long' : 'short'
   const atr = calculateAtr(candles)
   if (!atr) return null
 
-  const consolidation = candles.slice(-CONSOLIDATION_CANDLES)
-  const rangeHigh = Math.max(...consolidation.map((candle) => candle.high))
-  const rangeLow = Math.min(...consolidation.map((candle) => candle.low))
-  const range = rangeHigh - rangeLow
-  const rangeAtr = range / atr
-  if (rangeAtr <= 0 || rangeAtr > 1.5) return null
-
-  const level = findLastSwing(candles, side === 'long' ? 'high' : 'low', candles.length - CONSOLIDATION_CANDLES - 2)
+  const level = findLastSwing(candles, side === 'long' ? 'high' : 'low')
   if (!level) return null
 
   const entryCandle = candles.at(-1)!
+  const previous = candles.at(-2)!
   const entry = entryCandle.close
-  const volumeBefore = candles.slice(-(CONSOLIDATION_CANDLES + 20), -CONSOLIDATION_CANDLES)
-  const averageBefore = volumeBefore.reduce((sum, candle) => sum + candle.volume, 0) / volumeBefore.length
-  const averageConsolidation = consolidation.reduce((sum, candle) => sum + candle.volume, 0) / consolidation.length
-  if (averageBefore && averageConsolidation < averageBefore) return null
-
-  const nearLevel = side === 'long'
-    ? level.price >= rangeHigh && level.price - rangeHigh <= atr * 0.6
-    : level.price <= rangeLow && rangeLow - level.price <= atr * 0.6
-  const holdsNearEdge = side === 'long'
-    ? entry >= rangeLow + range * 0.6 && entryCandle.close >= entryCandle.open
-    : entry <= rangeHigh - range * 0.6 && entryCandle.close <= entryCandle.open
-  if (!nearLevel || !holdsNearEdge) return null
+  const threshold = atr * 0.1
+  const brokeNow = side === 'long'
+    ? entry > level.price + threshold && previous.close <= level.price + threshold && entryCandle.close > entryCandle.open
+    : entry < level.price - threshold && previous.close >= level.price - threshold && entryCandle.close < entryCandle.open
+  if (!brokeNow) return null
 
   const buffer = atr * 0.25
-  const stopPrice = side === 'long' ? rangeLow - buffer : rangeHigh + buffer
+  const stopPrice = side === 'long'
+    ? Math.min(level.price, entryCandle.low) - buffer
+    : Math.max(level.price, entryCandle.high) + buffer
   const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
   if (risk <= 0) return null
 
@@ -374,7 +363,7 @@ export function calculateLevelBreakoutPlan(candles: Candle[], trend: OverallTren
   return {
     setupType: 'level-breakout',
     setupName: SETUP_META['level-breakout'].name,
-    setupNote: `Наторговка перед уровнем ${level.price.toPrecision(6)} · диапазон ${rangeAtr.toFixed(1)} ATR`,
+    setupNote: `Закрытый пробой уровня ${level.price.toPrecision(6)}`,
     stop: {
       side,
       entry,
@@ -395,6 +384,88 @@ function isSwingAt(candles: Candle[], index: number, kind: 'high' | 'low') {
   return kind === 'high'
     ? candle.high > candles[index - 1].high && candle.high > candles[index - 2].high && candle.high >= candles[index + 1].high && candle.high >= candles[index + 2].high
     : candle.low < candles[index - 1].low && candle.low < candles[index - 2].low && candle.low <= candles[index + 1].low && candle.low <= candles[index + 2].low
+}
+
+function createTwoTargetPlan(setupType: SetupType, side: 'long' | 'short', entry: number, stopPrice: number, note: string): TradePlan | null {
+  const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
+  if (risk <= 0) return null
+  const direction = side === 'long' ? 1 : -1
+
+  return {
+    setupType,
+    setupName: SETUP_META[setupType].name,
+    setupNote: note,
+    stop: {
+      side,
+      entry,
+      price: stopPrice,
+      distancePercent: (risk / entry) * 100,
+    },
+    takeProfits: [
+      { id: 'TP1', price: entry + direction * risk * 1.5, share: 50, riskMultiple: 1.5 },
+      { id: 'TP2', price: entry + direction * risk * 3, share: 50, riskMultiple: 3 },
+    ],
+  }
+}
+
+export function calculateFalseBreakoutPlan(candles: Candle[]): TradePlan | null {
+  if (candles.length < PERIOD + 5) return null
+  const atr = calculateAtr(candles)
+  if (!atr) return null
+
+  const current = candles.at(-1)!
+  const threshold = atr * 0.1
+  const buffer = atr * 0.25
+  for (let index = candles.length - 3; index >= Math.max(2, candles.length - 60); index -= 1) {
+    if (isSwingAt(candles, index, 'high')) {
+      const level = candles[index].high
+      const failedAbove = current.high > level + threshold && current.close < level && current.close < current.open
+      if (failedAbove) return createTwoTargetPlan('false-breakout', 'short', current.close, current.high + buffer, `Ложный пробой сопротивления ${level.toPrecision(6)}`)
+    }
+    if (isSwingAt(candles, index, 'low')) {
+      const level = candles[index].low
+      const failedBelow = current.low < level - threshold && current.close > level && current.close > current.open
+      if (failedBelow) return createTwoTargetPlan('false-breakout', 'long', current.close, current.low - buffer, `Ложный пробой поддержки ${level.toPrecision(6)}`)
+    }
+  }
+
+  return null
+}
+
+function calculateLocalExtremeReversal(candles: Candle[], side: 'long' | 'short'): TradePlan | null {
+  if (candles.length < PERIOD + 8) return null
+  const atr = calculateAtr(candles)
+  if (!atr) return null
+
+  const current = candles.at(-1)!
+  const previous = candles.at(-2)!
+  const recent = candles.slice(-21, -1)
+  const localExtreme = side === 'long'
+    ? Math.min(...recent.map((candle) => candle.low))
+    : Math.max(...recent.map((candle) => candle.high))
+  const range = current.high - current.low
+  if (range <= 0) return null
+
+  const touchesExtreme = side === 'long'
+    ? current.low <= localExtreme + atr * 0.15
+    : current.high >= localExtreme - atr * 0.15
+  const rejectionConfirmed = side === 'long'
+    ? current.close > current.open && current.close > previous.close && current.close >= current.low + range * 0.6
+    : current.close < current.open && current.close < previous.close && current.close <= current.high - range * 0.6
+  if (!touchesExtreme || !rejectionConfirmed) return null
+
+  const stopPrice = side === 'long' ? current.low - atr * 0.25 : current.high + atr * 0.25
+  const setupType = side === 'long' ? 'bottom-reversal' : 'top-reversal'
+  const label = side === 'long' ? 'дна' : 'вершины'
+  return createTwoTargetPlan(setupType, side, current.close, stopPrice, `Реакция от локального ${label} за последние 20 свечей`)
+}
+
+export function calculateBottomReversalPlan(candles: Candle[]): TradePlan | null {
+  return calculateLocalExtremeReversal(candles, 'long')
+}
+
+export function calculateTopReversalPlan(candles: Candle[]): TradePlan | null {
+  return calculateLocalExtremeReversal(candles, 'short')
 }
 
 export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTrend): TradePlan | null {
@@ -468,73 +539,13 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
   return null
 }
 
-function consensusDirection(analyses: TrendAnalysis[], marketInfo: MarketInfoSignal[]): { side: 'long' | 'short', confirmations: number } | undefined {
-  const votes = { long: 0, short: 0 }
-  analyses.forEach((analysis) => {
-    if (analysis.direction === 'bullish' && analysis.strength >= 20) votes.long += 1
-    if (analysis.direction === 'bearish' && analysis.strength >= 20) votes.short += 1
-  })
-  marketInfo.forEach((signal) => { votes[signal.side === 'bullish' ? 'long' : 'short'] += 1 })
-  const side = votes.long > votes.short ? 'long' : votes.short > votes.long ? 'short' : undefined
-  if (!side || votes[side] < 4 || votes[side] - votes[side === 'long' ? 'short' : 'long'] < 2) return undefined
-  return { side, confirmations: votes[side] }
-}
-
-function significantHourlyTargets(candles: Candle[], side: 'long' | 'short', minimumTarget: number): number[] {
-  const atr = calculateAtr(candles)
-  if (!atr) return []
-  const kind = side === 'long' ? 'high' : 'low'
-  const candidates: Array<{ price: number, score: number }> = []
-  for (let index = Math.max(2, candles.length - 100); index < candles.length - 2; index += 1) {
-    if (!isSwingAt(candles, index, kind)) continue
-    const price = kind === 'high' ? candles[index].high : candles[index].low
-    const isBeyondTarget = side === 'long' ? price > minimumTarget + atr * 0.15 : price < minimumTarget - atr * 0.15
-    if (!isBeyondTarget) continue
-    const after = candles.slice(index + 1)
-    const reaction = kind === 'high'
-      ? price - Math.min(...after.map((candle) => candle.low))
-      : Math.max(...after.map((candle) => candle.high)) - price
-    if (reaction < atr * 1.5) continue
-    candidates.push({ price, score: reaction / atr })
-  }
-  return candidates
-    .sort((left, right) => (side === 'long' ? left.price - right.price : right.price - left.price) || right.score - left.score)
-    .filter((candidate, index, all) => index === 0 || Math.abs(candidate.price - all[index - 1].price) > atr * 0.5)
-    .slice(0, 2)
-    .map((candidate) => candidate.price)
-}
-
-export function calculateConsensusPlan(entryCandles: Candle[], analyses: TrendAnalysis[], marketInfo: MarketInfoSignal[], hourlyCandles: Candle[]): TradePlan | null {
-  const consensus = consensusDirection(analyses, marketInfo)
-  if (!consensus || entryCandles.length < PERIOD + 3) return null
-
-  const entry = entryCandles.at(-1)!.close
-  const atr = calculateAtr(entryCandles)
-  const pivot = findLastSwing(entryCandles, consensus.side === 'long' ? 'low' : 'high')
-  if (!atr || !pivot) return null
-  const stopPrice = consensus.side === 'long' ? pivot.price - atr * 0.25 : pivot.price + atr * 0.25
-  const risk = consensus.side === 'long' ? entry - stopPrice : stopPrice - entry
-  if (risk <= 0) return null
-
-  const direction = consensus.side === 'long' ? 1 : -1
-  const tp1 = entry + direction * risk * 3
-  const hourlyTargets = significantHourlyTargets(hourlyCandles, consensus.side, tp1)
-  if (!hourlyTargets.length) return null
-  const takeProfits: TakeProfitLevel[] = [
-    { id: 'TP1', price: tp1, share: hourlyTargets.length > 1 ? 34 : 50, riskMultiple: 3 },
-    { id: 'TP2', price: hourlyTargets[0], share: hourlyTargets.length > 1 ? 33 : 50, riskMultiple: Math.abs(hourlyTargets[0] - entry) / risk },
-  ]
-  if (hourlyTargets[1] !== undefined) takeProfits.push({ id: 'TP3', price: hourlyTargets[1], share: 33, riskMultiple: Math.abs(hourlyTargets[1] - entry) / risk })
-
-  return {
-    setupType: 'consensus',
-    setupName: SETUP_META.consensus.name,
-    setupNote: `${consensus.confirmations} подтверждений направления · стоп за локальным ${consensus.side === 'long' ? 'лоем' : 'хаем'} 5m`,
-    stop: { side: consensus.side, entry, price: stopPrice, distancePercent: risk / entry * 100, distanceAtr: risk / atr },
-    takeProfits,
-  }
-}
-
 export function calculateTradePlans(candles: Candle[], trend: OverallTrend): TradePlan[] {
-  return [calculateTrendReclaimPlan(candles, trend), calculateLevelBreakoutPlan(candles, trend), calculateBreakoutRetestPlan(candles, trend)].filter((plan): plan is TradePlan => Boolean(plan))
+  return [
+    calculateTrendReclaimPlan(candles, trend),
+    calculateLevelBreakoutPlan(candles, trend),
+    calculateFalseBreakoutPlan(candles),
+    calculateBottomReversalPlan(candles),
+    calculateTopReversalPlan(candles),
+    calculateBreakoutRetestPlan(candles, trend),
+  ].filter((plan): plan is TradePlan => Boolean(plan))
 }

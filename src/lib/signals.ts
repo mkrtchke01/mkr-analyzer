@@ -1,6 +1,6 @@
 export type SignalState = 'open' | 'closed'
 export type SignalStatus = 'active' | 'tp1' | 'tp2' | 'tp3' | 'stop' | 'expired' | 'ambiguous'
-export type SavedSetupType = 'trend-reclaim' | 'level-breakout' | 'breakout-retest' | 'consensus'
+export type SavedSetupType = 'trend-reclaim' | 'level-breakout' | 'false-breakout' | 'bottom-reversal' | 'top-reversal' | 'breakout-retest' | 'consensus'
 export type SavedSignal = {
   id: string
   symbol: string

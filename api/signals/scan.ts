@@ -2,8 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { getCandles, getMarkets, type Candle, type Timeframe } from '../../src/lib/bybit.js'
 import { createSignalSnapshot } from '../../src/lib/signalSnapshot.js'
 import { evaluateSignalCandle, type ManagedSignal } from '../../src/lib/signalLifecycle.js'
-import { getMarketInfo } from '../../src/lib/marketInfo.js'
-import { analyzeTrend, calculateConsensusPlan, calculateTradePlans, getOverallTrend, type TradePlan, type TrendAnalysis } from '../../src/lib/trend.js'
+import { analyzeTrend, calculateTradePlans, getOverallTrend, type TradePlan, type TrendAnalysis } from '../../src/lib/trend.js'
 import { isAuthorizedCronRequest, supabaseRequest, uploadSnapshot } from '../_lib/supabase.js'
 
 const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
@@ -12,7 +11,7 @@ const MAX_CONCURRENCY = 5
 type StoredSignal = {
   id: string
   symbol: string
-  setup_type: 'trend-reclaim' | 'level-breakout' | 'breakout-retest' | 'consensus'
+  setup_type: 'trend-reclaim' | 'level-breakout' | 'false-breakout' | 'bottom-reversal' | 'top-reversal' | 'breakout-retest' | 'consensus'
   side: 'long' | 'short'
   status: 'active' | 'tp1' | 'tp2'
   entry_price: string
@@ -164,11 +163,7 @@ async function scanMarket(symbol: string) {
   const confirmed = multiTimeframeCandles.map(closedCandles)
   const analyses = confirmed.map((candles, index) => analyzeTrend(candles, ANALYSIS_TIMEFRAMES[index]))
   const entryCandles = confirmed[3]
-  const marketInfo = confirmed.slice(0, 3).flatMap((candles, index) => getMarketInfo(candles, ANALYSIS_TIMEFRAMES[index] as '4h' | '1h' | '15m'))
-  const plans = [
-    ...calculateTradePlans(entryCandles, getOverallTrend(analyses)),
-    calculateConsensusPlan(entryCandles, analyses, marketInfo, confirmed[1]),
-  ].filter((plan): plan is TradePlan => Boolean(plan))
+  const plans = calculateTradePlans(entryCandles, getOverallTrend(analyses))
   let created = 0
   for (const plan of plans) if (await persistPlan(symbol, plan, analyses, entryCandles)) created += 1
   return created
