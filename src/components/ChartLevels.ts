@@ -4,7 +4,9 @@ import type { ManualChartLevel } from '../lib/trend'
 
 type RenderedLevel = ManualChartLevel & {
   x: number
+  endX: number
   y: number
+  endY: number
   lineWidth: number
   color: string
   dashed: boolean
@@ -30,7 +32,7 @@ class ChartLevelsRenderer implements ISeriesPrimitivePaneRenderer {
         context.lineWidth = level.lineWidth * verticalPixelRatio
         context.setLineDash(level.dashed ? [6 * horizontalPixelRatio, 4 * horizontalPixelRatio] : [])
         context.moveTo(level.x * horizontalPixelRatio, level.y * verticalPixelRatio)
-        context.lineTo(bitmapSize.width, level.y * verticalPixelRatio)
+        context.lineTo(level.endX * horizontalPixelRatio, level.endY * verticalPixelRatio)
         context.stroke()
       })
       context.restore()
@@ -45,12 +47,16 @@ class ChartLevelsPaneView implements ISeriesPrimitivePaneView {
     this.levelRenderer.update(manualLevels.flatMap((level) => {
       const x = chart.timeScale().timeToCoordinate(level.time as Time)
       const y = series.priceToCoordinate(level.price)
-      if (y === null) return []
+      const endX = chart.timeScale().timeToCoordinate(level.endTime as Time)
+      const endY = series.priceToCoordinate(level.endPrice)
+      if (x === null || y === null || endX === null || endY === null) return []
 
       return [{
         ...level,
         x: getLevelStartX(x),
+        endX: getLevelStartX(endX),
         y,
+        endY,
         lineWidth: 2,
         color: '#f5bc5b',
         dashed: true,
@@ -73,7 +79,12 @@ export class ChartLevelsPrimitive implements ISeriesPrimitive<Time> {
   private requestUpdate: (() => void) | null = null
   private readonly view = new ChartLevelsPaneView()
 
-  constructor(private readonly manualLevels: ManualChartLevel[]) {}
+  constructor(private manualLevels: ManualChartLevel[]) {}
+
+  setLevels(levels: ManualChartLevel[]) {
+    this.manualLevels = levels
+    this.requestUpdate?.()
+  }
 
   attached(parameters: SeriesAttachedParameter<Time>) {
     this.chart = parameters.chart

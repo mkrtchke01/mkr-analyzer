@@ -24,6 +24,7 @@ button { cursor: pointer; }
 .market-row.setup-long:not(.selected) { background: rgba(49,210,140,.035); }
 .market-row.setup-short:not(.selected) { background: rgba(255,102,122,.035); }
 .market-symbol { display: flex; align-items: center; gap: 6px; }
+.market-row { grid-template-columns: 34px 1fr 66px auto; }.list-label { display: grid; grid-template-columns: 1fr 66px auto; gap: 9px; }.market-trend { display: block; width: 58px; height: 8px; overflow: hidden; border-radius: 99px; background: rgba(154,166,184,.3); }.market-trend i { display: block; height: 100%; border-radius: inherit; background: #7d899a; }.market-trend.bullish i { background: #31d28c; }.market-trend.bearish i { background: #ff667a; }
 .coin-name em { padding: 2px 4px; color: #31d28c; border-radius: 3px; background: rgba(49,210,140,.1); font: 8px 'DM Mono', monospace; font-style: normal; }
 .setup-short .coin-name em { color: #ff8191; background: rgba(255,102,122,.1); }
 @keyframes scan-pulse { from { opacity: .45; } to { opacity: 1; } }

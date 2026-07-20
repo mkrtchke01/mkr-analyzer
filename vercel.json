@@ -4,5 +4,11 @@
     "api/signals/scan.ts": {
       "regions": ["fra1"]
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/signals/scan",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

@@ -55,6 +55,10 @@ async function patchSignal(id: string, values: Record<string, unknown>) {
   })
 }
 
+async function deleteSignal(id: string) {
+  await supabaseRequest(`/rest/v1/mkr_signals?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
 async function monitorSignal(signal: StoredSignal) {
   const candles = closedCandles(await getCandles(signal.symbol, '5m', 200))
   const signalState: ManagedSignal = {
@@ -140,7 +144,8 @@ async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnaly
   try {
     await uploadSnapshot(snapshotPath, snapshot)
   } catch {
-    await patchSignal(id, { snapshot_path: null })
+    await deleteSignal(id)
+    return false
   }
   await createEvent(id, 'detected', confirmationCandle, { trend: getOverallTrend(analyses), setupType: plan.setupType, entry: plan.stop.entry, stop: plan.stop.price })
   return true

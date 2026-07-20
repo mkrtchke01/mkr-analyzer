@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Time } from 'lightweight-charts'
-import { enableInitialVerticalPanning, fitChartHistory, manualLevelFromChartPoint, resetPriceScaleForNewCandles } from './PriceChart'
+import { CrosshairMode, type Time } from 'lightweight-charts'
+import { enableInitialVerticalPanning, fitChartHistory, freeCrosshairOptions, manualLevelFromChartPoint, resetPriceScaleForNewCandles } from './PriceChart'
 
 describe('PriceChart options', () => {
   it('allows vertical panning as soon as the chart opens', () => {
@@ -27,7 +27,13 @@ describe('PriceChart options', () => {
     expect(manualLevelFromChartPoint(64_059.6, 1_720_000_000 as Time)).toEqual({
       price: 64_059.6,
       time: 1_720_000_000,
+      endPrice: 64_059.6,
+      endTime: 1_720_000_000,
     })
+  })
+
+  it('keeps the crosshair freely under the cursor instead of snapping it to candles', () => {
+    expect(freeCrosshairOptions).toEqual({ mode: CrosshairMode.Normal })
   })
 
   it('fits the full loaded history into the chart', () => {

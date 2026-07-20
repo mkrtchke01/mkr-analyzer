@@ -49,6 +49,17 @@ export type ManualChartLevel = {
   id: string
   price: number
   time: number
+  endPrice: number
+  endTime: number
+}
+
+export type RiskRewardBox = {
+  id: string
+  time: number
+  endTime: number
+  entry: number
+  takeProfit: number
+  stopLoss: number
 }
 
 const FAST_EMA = 21

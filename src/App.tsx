@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PriceChart from './components/PriceChart'
+import { createRiskRewardBox } from './components/RiskReward'
 import SignalHistory from './components/SignalHistory'
 import TrendPanel from './components/TrendPanel'
 import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
-import { getSavedSignals, type SavedSignal } from './lib/signals'
-import { analyzeTrend, calculateTradePlans, getOverallTrend, getSetupSignals, SETUP_META, type ManualChartLevel, type SetupSignal, type TradePlan, type TrendAnalysis } from './lib/trend'
+import { getSavedSignals, tradePlanFromSavedSignal, type SavedSignal } from './lib/signals'
+import { analyzeTrend, getOverallTrend, SETUP_META, type ManualChartLevel, type OverallTrend, type RiskRewardBox, type SetupSignal, type TrendAnalysis } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
   { symbol: 'BTCUSDT', price: 0, change: 0, turnover: 0 },
@@ -15,6 +16,10 @@ const FALLBACK_MARKETS: Market[] = [
 const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
 const SCAN_INTERVAL = 5 * 60_000
 const SCAN_CONCURRENCY = 3
+const SAVED_SIGNAL_REFRESH_INTERVAL = 5_000
+type DrawingMode = 'level' | 'risk' | null
+type ChartPoint = { price: number, time: number }
+type MarketTrend = { direction: 'bullish' | 'bearish' | 'flat', strength: number }
 
 function baseAsset(symbol: string) {
   return symbol.replace('USDT', '')
@@ -24,6 +29,12 @@ function formatTurnover(turnover: number) {
   if (turnover >= 1_000_000_000) return `$${(turnover / 1_000_000_000).toFixed(2)}B`
   if (turnover >= 1_000_000) return `$${(turnover / 1_000_000).toFixed(1)}M`
   return `$${(turnover / 1_000).toFixed(0)}K`
+}
+
+function getMarketTrend(analyses: TrendAnalysis[]): MarketTrend {
+  const overall = getOverallTrend(analyses)
+  const strength = Math.round(analyses.reduce((sum, analysis, index) => sum + analysis.strength * [0.4, 0.3, 0.2, 0.1][index], 0))
+  return { direction: overall === 'strong-long' ? 'bullish' : overall === 'strong-short' ? 'bearish' : 'flat', strength }
 }
 
 export default function App() {
@@ -38,11 +49,12 @@ export default function App() {
   const [trendAnalyses, setTrendAnalyses] = useState<TrendAnalysis[]>([])
   const [trendLoading, setTrendLoading] = useState(true)
   const [trendError, setTrendError] = useState(false)
-  const [tradePlans, setTradePlans] = useState<TradePlan[]>([])
   const [manualLevelsBySymbol, setManualLevelsBySymbol] = useState<Record<string, ManualChartLevel[]>>({})
-  const [manualLevelMode, setManualLevelMode] = useState(false)
+  const [riskRewardsBySymbol, setRiskRewardsBySymbol] = useState<Record<string, RiskRewardBox[]>>({})
+  const [drawingMode, setDrawingMode] = useState<DrawingMode>(null)
+  const [drawingAnchor, setDrawingAnchor] = useState<ChartPoint | null>(null)
   const [marketsReady, setMarketsReady] = useState(false)
-  const [marketSetups, setMarketSetups] = useState<Record<string, SetupSignal[]>>({})
+  const [marketTrends, setMarketTrends] = useState<Record<string, MarketTrend>>({})
   const [setupScanning, setSetupScanning] = useState(false)
   const [savedOpenSignals, setSavedOpenSignals] = useState<SavedSignal[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -63,7 +75,7 @@ export default function App() {
     const symbols = markets.map((market) => market.symbol)
     const scanSetups = async () => {
       setSetupScanning(true)
-      const found: Record<string, SetupSignal[]> = {}
+      const trends: Record<string, MarketTrend> = {}
       let nextIndex = 0
       const scanOne = async () => {
         while (nextIndex < symbols.length) {
@@ -72,8 +84,7 @@ export default function App() {
           try {
             const candles = await Promise.all(ANALYSIS_TIMEFRAMES.map((item) => getCandles(currentSymbol, item, 120)))
             const analyses = candles.map((items, index) => analyzeTrend(items, ANALYSIS_TIMEFRAMES[index]))
-            const setups = getSetupSignals(analyses, candles[3])
-            if (setups.length) found[currentSymbol] = setups
+            trends[currentSymbol] = getMarketTrend(analyses)
           } catch {
             // A single unavailable market must not interrupt the complete scan.
           }
@@ -82,7 +93,7 @@ export default function App() {
 
       await Promise.all(Array.from({ length: Math.min(SCAN_CONCURRENCY, symbols.length) }, () => scanOne()))
       if (!disposed) {
-        setMarketSetups(found)
+        setMarketTrends(trends)
         setSetupScanning(false)
       }
     }
@@ -104,15 +115,6 @@ export default function App() {
         if (!disposed) {
           const analyses = candles.map((items, index) => analyzeTrend(items, ANALYSIS_TIMEFRAMES[index]))
           setTrendAnalyses(analyses)
-          const nextTradePlans = calculateTradePlans(candles[3], getOverallTrend(analyses))
-          setTradePlans(nextTradePlans)
-          const setups = getSetupSignals(analyses, candles[3])
-          setMarketSetups((previous) => {
-            const next = { ...previous }
-            if (setups.length) next[symbol] = setups
-            else delete next[symbol]
-            return next
-          })
           setTrendError(false)
         }
       } catch {
@@ -141,7 +143,7 @@ export default function App() {
       }
     }
     void loadSavedSignals()
-    const refreshId = window.setInterval(() => void loadSavedSignals(), 30_000)
+    const refreshId = window.setInterval(() => void loadSavedSignals(), SAVED_SIGNAL_REFRESH_INTERVAL)
     return () => {
       disposed = true
       window.clearInterval(refreshId)
@@ -149,14 +151,14 @@ export default function App() {
   }, [])
 
   const activeMarketSetups = useMemo(() => {
-    const next = { ...marketSetups }
-    savedOpenSignals.forEach((signal) => {
+    const next: Record<string, SetupSignal[]> = {}
+    savedOpenSignals.filter((signal) => signal.snapshotUrl).forEach((signal) => {
       const savedSetup: SetupSignal = { side: signal.side, type: signal.setupType }
       const current = next[signal.symbol] ?? []
       if (!current.some((setup) => setup.side === savedSetup.side && setup.type === savedSetup.type)) next[signal.symbol] = [...current, savedSetup]
     })
     return next
-  }, [marketSetups, savedOpenSignals])
+  }, [savedOpenSignals])
 
   const setupSymbols = useMemo(() => new Set(Object.keys(activeMarketSetups)), [activeMarketSetups])
   const visibleMarkets = useMemo(
@@ -189,26 +191,61 @@ export default function App() {
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [historyOpen])
 
-  useEffect(() => setManualLevelMode(false), [symbol])
+  useEffect(() => {
+    setDrawingMode(null)
+    setDrawingAnchor(null)
+  }, [symbol])
 
   const selectedMarket = markets.find((market) => market.symbol === symbol)
+  const fixedTradePlans = useMemo(
+    () => savedOpenSignals.filter((signal) => signal.symbol === symbol && signal.snapshotUrl).map(tradePlanFromSavedSignal),
+    [savedOpenSignals, symbol],
+  )
   const change = selectedMarket?.change ?? 0
   const handleStatusChange = useCallback((nextStatus: 'loading' | 'live' | 'offline') => setStatus(nextStatus), [])
   const handlePriceChange = useCallback((price: number) => setCurrentPrice(price), [])
-  const addManualLevel = useCallback((level: Omit<ManualChartLevel, 'id'>) => {
-    setManualLevelsBySymbol((previous) => ({
+  const addDrawingPoint = useCallback((point: ChartPoint) => {
+    if (!drawingMode) return
+    if (!drawingAnchor) {
+      setDrawingAnchor(point)
+      return
+    }
+    if (drawingMode === 'level') {
+      setManualLevelsBySymbol((previous) => ({
+        ...previous,
+        [symbol]: [...(previous[symbol] ?? []), { ...drawingAnchor, endTime: point.time, endPrice: point.price, id: `${Date.now()}-${Math.random()}` }],
+      }))
+    } else {
+      const box = createRiskRewardBox(`${Date.now()}-${Math.random()}`, drawingAnchor, point)
+      if (box) {
+        setRiskRewardsBySymbol((previous) => ({
+          ...previous,
+          [symbol]: [...(previous[symbol] ?? []), box],
+        }))
+      }
+    }
+    setDrawingAnchor(null)
+    setDrawingMode(null)
+  }, [drawingAnchor, drawingMode, symbol])
+  const updateRiskReward = useCallback((id: string, target: 'takeProfit' | 'stopLoss', price: number) => {
+    setRiskRewardsBySymbol((previous) => ({
       ...previous,
-      [symbol]: [...(previous[symbol] ?? []), { ...level, id: `${Date.now()}-${Math.random()}` }],
+      [symbol]: (previous[symbol] ?? []).map((box) => box.id === id ? { ...box, [target]: price } : box),
     }))
-    setManualLevelMode(false)
   }, [symbol])
-  const clearManualLevels = useCallback(() => {
+  const clearDrawings = useCallback(() => {
     setManualLevelsBySymbol((previous) => {
+      const { [symbol]: _, ...rest } = previous
+      return rest
+    })
+    setRiskRewardsBySymbol((previous) => {
       const { [symbol]: _, ...rest } = previous
       return rest
     })
   }, [symbol])
   const manualLevels = manualLevelsBySymbol[symbol] ?? []
+  const riskRewards = riskRewardsBySymbol[symbol] ?? []
+  const drawingCount = manualLevels.length + riskRewards.length
 
   return (
     <main className="terminal-shell">
@@ -235,22 +272,25 @@ export default function App() {
               </div>
             </div>
             <div className="chart-actions">
-              <button className={`chart-level-toggle ${manualLevelMode ? 'active' : ''}`} onClick={() => setManualLevelMode((active) => !active)} aria-pressed={manualLevelMode}>
-                {manualLevelMode ? 'Выберите цену' : 'Уровень'}
+              <button className={`chart-level-toggle ${drawingMode === 'level' ? 'active' : ''}`} onClick={() => { setDrawingMode((mode) => mode === 'level' ? null : 'level'); setDrawingAnchor(null) }} aria-pressed={drawingMode === 'level'}>
+                {drawingMode === 'level' ? (drawingAnchor ? 'Конец уровня' : 'Начало уровня') : 'Уровень'}
               </button>
-              {manualLevels.length > 0 && <button className="chart-level-clear" onClick={clearManualLevels}>Очистить {manualLevels.length}</button>}
+              <button className={`chart-level-toggle ${drawingMode === 'risk' ? 'active' : ''}`} onClick={() => { setDrawingMode((mode) => mode === 'risk' ? null : 'risk'); setDrawingAnchor(null) }} aria-pressed={drawingMode === 'risk'}>
+                {drawingMode === 'risk' ? (drawingAnchor ? 'TP / SL' : 'Вход') : 'TP / SL'}
+              </button>
+              {drawingCount > 0 && <button className="chart-level-clear" onClick={clearDrawings}>Очистить {drawingCount}</button>}
               <div className={`connection ${status}`}>
                 <i /> {status === 'live' ? 'Поток данных' : status === 'loading' ? 'Загрузка' : 'Переподключение'}
               </div>
             </div>
           </div>
-          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} tradePlans={tradePlans} manualLevels={manualLevels} manualLevelMode={manualLevelMode} onAddManualLevel={addManualLevel} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
+          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} tradePlans={fixedTradePlans} manualLevels={manualLevels} riskRewards={riskRewards} drawingMode={drawingMode} drawingAnchor={drawingAnchor} onDrawingPoint={addDrawingPoint} onUpdateRiskReward={updateRiskReward} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
           <footer className="chart-footer">
             <span>Свечи · {timeframe}</span>
             <span>Источник: Bybit public market data</span>
           </footer>
         </section>
-        <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} tradePlans={tradePlans} />
+        <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} tradePlans={fixedTradePlans} />
       </section>
 
       <aside className="markets-panel">
@@ -273,12 +313,13 @@ export default function App() {
           <span>Только сетапы</span>
           <b>{Object.keys(activeMarketSetups).length}</b>
         </label>
-        <div className="list-label"><span>ПАРА</span><span>ЦЕНА / 24Ч</span></div>
+        <div className="list-label"><span>ПАРА</span><span>ТРЕНД</span><span>ЦЕНА / 24Ч</span></div>
         <div className="market-list">
           {visibleMarkets.map((market) => (
             <button className={`market-row ${market.symbol === symbol ? 'selected' : ''} ${activeMarketSetups[market.symbol]?.[0] ? `setup-${activeMarketSetups[market.symbol]![0].side}` : ''}`} key={market.symbol} onClick={() => setSymbol(market.symbol)}>
               <span className="coin-icon">{baseAsset(market.symbol).slice(0, 1)}</span>
               <span className="coin-name"><span className="market-symbol"><b>{baseAsset(market.symbol)}</b>{activeMarketSetups[market.symbol]?.map((setup) => <em key={`${setup.type}-${setup.side}`}>{`${SETUP_META[setup.type].shortName} ${setup.side.toUpperCase()}`}</em>)}</span><small>USDT · PERP</small></span>
+              <span className={`market-trend ${marketTrends[market.symbol]?.direction ?? 'flat'}`} title="Сила тренда"><i style={{ width: `${marketTrends[market.symbol]?.strength ?? 0}%` }} /></span>
               <span className="market-values"><b>{market.price ? formatPrice(market.price) : '—'}</b><small className={market.change >= 0 ? 'positive' : 'negative'}>{market.change >= 0 ? '+' : ''}{market.change.toFixed(2)}%</small></span>
             </button>
           ))}

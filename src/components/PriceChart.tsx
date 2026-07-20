@@ -1,19 +1,25 @@
-import { useEffect, useRef } from 'react'
-import { ColorType, createChart, LineStyle, type CandlestickData, type IChartApi, type IPriceLine, type ISeriesApi, type Time } from 'lightweight-charts'
+import { useEffect, useRef, useState } from 'react'
+import { ColorType, CrosshairMode, createChart, LineStyle, type CandlestickData, type IChartApi, type IPriceLine, type ISeriesApi, type Time } from 'lightweight-charts'
 import { chartWebSocketUrl, getCandles, klineEventToCandle, timeframeToBybitInterval, type Candle, type Timeframe } from '../lib/bybit'
-import { SETUP_META, type ManualChartLevel, type TradePlan } from '../lib/trend'
+import { SETUP_META, type ManualChartLevel, type RiskRewardBox, type TradePlan } from '../lib/trend'
 import { ChartLevelsPrimitive } from './ChartLevels'
+import { getRiskRewardHandle, RiskRewardPrimitive } from './RiskReward'
 
 type PriceChartProps = {
   symbol: string
   timeframe: Timeframe
   tradePlans: TradePlan[]
   manualLevels: ManualChartLevel[]
-  manualLevelMode: boolean
-  onAddManualLevel: (level: Omit<ManualChartLevel, 'id'>) => void
+  riskRewards: RiskRewardBox[]
+  drawingMode: 'level' | 'risk' | null
+  drawingAnchor: { price: number, time: number } | null
+  onDrawingPoint: (point: { price: number, time: number }) => void
+  onUpdateRiskReward: (id: string, target: 'takeProfit' | 'stopLoss', price: number) => void
   onStatusChange: (status: 'loading' | 'live' | 'offline') => void
   onPriceChange: (price: number) => void
 }
+
+export const freeCrosshairOptions = { mode: CrosshairMode.Normal }
 
 const chartOptions = {
   layout: {
@@ -25,6 +31,7 @@ const chartOptions = {
     horzLines: { color: 'rgba(255, 255, 255, 0.045)' },
   },
   rightPriceScale: { borderColor: 'rgba(255, 255, 255, 0.08)' },
+  crosshair: freeCrosshairOptions,
   timeScale: {
     borderColor: 'rgba(255, 255, 255, 0.08)',
     timeVisible: true,
@@ -48,14 +55,16 @@ export function fitChartHistory(chart: Pick<IChartApi, 'timeScale'>) {
 }
 
 export function manualLevelFromChartPoint(price: number, time: Time): Omit<ManualChartLevel, 'id'> {
-  return { price, time: Number(time) }
+  return { price, time: Number(time), endPrice: price, endTime: Number(time) }
 }
 
-export default function PriceChart({ symbol, timeframe, tradePlans, manualLevels, manualLevelMode, onAddManualLevel, onStatusChange, onPriceChange }: PriceChartProps) {
+export default function PriceChart({ symbol, timeframe, tradePlans, manualLevels, riskRewards, drawingMode, drawingAnchor, onDrawingPoint, onUpdateRiskReward, onStatusChange, onPriceChange }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const tradeLinesRef = useRef<IPriceLine[]>([])
+  const levelPrimitiveRef = useRef<ChartLevelsPrimitive | null>(null)
+  const [drawingPreview, setDrawingPreview] = useState<{ price: number, time: number } | null>(null)
 
   useEffect(() => {
     const container = containerRef.current
@@ -119,27 +128,104 @@ export default function PriceChart({ symbol, timeframe, tradePlans, manualLevels
     const series = seriesRef.current
     if (!series) return
 
-    const levelPrimitive = new ChartLevelsPrimitive(manualLevels)
+    const levelPrimitive = new ChartLevelsPrimitive([])
+    levelPrimitiveRef.current = levelPrimitive
     series.attachPrimitive(levelPrimitive)
-    return () => series.detachPrimitive(levelPrimitive)
-  }, [manualLevels])
+    return () => {
+      series.detachPrimitive(levelPrimitive)
+      levelPrimitiveRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const preview = drawingMode === 'level' && drawingAnchor && drawingPreview
+      ? [{ id: 'drawing-preview', price: drawingAnchor.price, time: drawingAnchor.time, endPrice: drawingPreview.price, endTime: drawingPreview.time }]
+      : []
+    levelPrimitiveRef.current?.setLevels([...manualLevels, ...preview])
+  }, [drawingAnchor, drawingMode, drawingPreview, manualLevels])
 
   useEffect(() => {
     const chart = chartRef.current
     const series = seriesRef.current
-    if (!chart || !series || !manualLevelMode) return
+    if (!chart || !series || drawingMode !== 'level' || !drawingAnchor) {
+      setDrawingPreview(null)
+      return
+    }
 
-    const addLevelAtClick = (event: { point?: { x: number, y: number } }) => {
+    const moveDrawingPreview = (event: { point?: { x: number, y: number } }) => {
       if (!event.point) return
       const price = series.coordinateToPrice(event.point.y)
       const time = chart.timeScale().coordinateToTime(event.point.x)
-      if (price === null || time === null) return
-      onAddManualLevel(manualLevelFromChartPoint(price, time))
+      if (price !== null && time !== null) setDrawingPreview({ price, time: Number(time) })
     }
 
-    chart.subscribeClick(addLevelAtClick)
-    return () => chart.unsubscribeClick(addLevelAtClick)
-  }, [manualLevelMode, onAddManualLevel])
+    chart.subscribeCrosshairMove(moveDrawingPreview)
+    return () => chart.unsubscribeCrosshairMove(moveDrawingPreview)
+  }, [drawingAnchor, drawingMode])
+
+  useEffect(() => {
+    const series = seriesRef.current
+    if (!series) return
+
+    const primitive = new RiskRewardPrimitive(riskRewards)
+    series.attachPrimitive(primitive)
+    return () => series.detachPrimitive(primitive)
+  }, [riskRewards])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    const series = seriesRef.current
+    if (!chart || !series || !drawingMode) return
+
+    const addDrawingPoint = (event: { point?: { x: number, y: number } }) => {
+      if (!event.point) return
+      const rawPrice = series.coordinateToPrice(event.point.y)
+      const time = chart.timeScale().coordinateToTime(event.point.x)
+      if (rawPrice === null || time === null) return
+      onDrawingPoint({ price: rawPrice, time: Number(time) })
+    }
+
+    chart.subscribeClick(addDrawingPoint)
+    return () => chart.unsubscribeClick(addDrawingPoint)
+  }, [drawingMode, onDrawingPoint])
+
+  useEffect(() => {
+    const container = containerRef.current
+    const series = seriesRef.current
+    if (!container || !series || !riskRewards.length) return
+    let dragging: { id: string, target: 'takeProfit' | 'stopLoss' } | null = null
+    const getChartY = (event: PointerEvent) => event.clientY - container.getBoundingClientRect().top
+    const onPointerDown = (event: PointerEvent) => {
+      const handles = riskRewards.flatMap((box) => {
+        const takeProfitY = series.priceToCoordinate(box.takeProfit)
+        const stopLossY = series.priceToCoordinate(box.stopLoss)
+        return [takeProfitY === null ? null : { id: box.id, target: 'takeProfit' as const, y: takeProfitY }, stopLossY === null ? null : { id: box.id, target: 'stopLoss' as const, y: stopLossY }].filter(Boolean)
+      }) as Array<{ id: string, target: 'takeProfit' | 'stopLoss', y: number }>
+      const handle = getRiskRewardHandle(getChartY(event), handles)
+      if (!handle) return
+      event.preventDefault()
+      dragging = handle
+      container.setPointerCapture(event.pointerId)
+    }
+    const onPointerMove = (event: PointerEvent) => {
+      if (!dragging) return
+      const price = series.coordinateToPrice(getChartY(event))
+      if (price !== null) onUpdateRiskReward(dragging.id, dragging.target, price)
+    }
+    const onPointerUp = (event: PointerEvent) => {
+      if (!dragging) return
+      dragging = null
+      if (container.hasPointerCapture(event.pointerId)) container.releasePointerCapture(event.pointerId)
+    }
+    container.addEventListener('pointerdown', onPointerDown)
+    container.addEventListener('pointermove', onPointerMove)
+    container.addEventListener('pointerup', onPointerUp)
+    return () => {
+      container.removeEventListener('pointerdown', onPointerDown)
+      container.removeEventListener('pointermove', onPointerMove)
+      container.removeEventListener('pointerup', onPointerUp)
+    }
+  }, [riskRewards, onUpdateRiskReward])
 
   useEffect(() => {
     let socket: WebSocket | undefined
