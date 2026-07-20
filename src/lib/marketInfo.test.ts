@@ -52,6 +52,16 @@ describe('market info signals', () => {
     })]))
   })
 
+  it('ignores a 4h micro-high that did not produce a meaningful pullback', () => {
+    const candles = baseCandles()
+    for (let index = 85; index <= 96; index += 1) setCandle(candles, index, 110, 110.5, 109.5, 110)
+    setCandle(candles, 90, 110.5, 112, 109.5, 110)
+    setCandle(candles, 97, 110, 115, 109.8, 114)
+    setCandle(candles, 98, 114, 116, 113.5, 115)
+
+    expect(getMarketInfo(candles, '4h').every((signal) => signal.type !== 'breakout' && signal.type !== 'retest')).toBe(true)
+  })
+
   it('reports a Fibonacci-sized correction after a strong impulse', () => {
     const candles = baseCandles()
     setCandle(candles, 60, 100, 101, 98, 100)

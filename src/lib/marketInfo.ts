@@ -19,26 +19,40 @@ export type MarketInfoSignal = {
 
 type Swing = { index: number, price: number }
 type Side = MarketInfoSignal['side']
+type LevelTimeframe = MarketInfoSignal['timeframe']
 
 const PIVOT_RADIUS = 2
 const RECENT_SIGNAL_CANDLES = 40
+const LEVEL_RULES: Record<LevelTimeframe, { pivotRadius: number, minimumReversalAtr: number }> = {
+  '4h': { pivotRadius: 5, minimumReversalAtr: 3 },
+  '1h': { pivotRadius: 4, minimumReversalAtr: 2 },
+  '15m': { pivotRadius: 3, minimumReversalAtr: 1.5 },
+}
 
-function isSwing(candles: Candle[], index: number, kind: 'high' | 'low'): boolean {
-  if (index < PIVOT_RADIUS || index > candles.length - PIVOT_RADIUS - 1) return false
+function isSwing(candles: Candle[], index: number, kind: 'high' | 'low', radius = PIVOT_RADIUS): boolean {
+  if (index < radius || index > candles.length - radius - 1) return false
   const candle = candles[index]
-  for (let offset = 1; offset <= PIVOT_RADIUS; offset += 1) {
+  for (let offset = 1; offset <= radius; offset += 1) {
     if (kind === 'high' && (candle.high <= candles[index - offset].high || candle.high < candles[index + offset].high)) return false
     if (kind === 'low' && (candle.low >= candles[index - offset].low || candle.low > candles[index + offset].low)) return false
   }
   return true
 }
 
-function swings(candles: Candle[], kind: 'high' | 'low'): Swing[] {
+function swings(candles: Candle[], kind: 'high' | 'low', radius = PIVOT_RADIUS): Swing[] {
   const result: Swing[] = []
-  for (let index = PIVOT_RADIUS; index < candles.length - PIVOT_RADIUS; index += 1) {
-    if (isSwing(candles, index, kind)) result.push({ index, price: kind === 'high' ? candles[index].high : candles[index].low })
+  for (let index = radius; index < candles.length - radius; index += 1) {
+    if (isSwing(candles, index, kind, radius)) result.push({ index, price: kind === 'high' ? candles[index].high : candles[index].low })
   }
   return result
+}
+
+function reversalFromLevel(candles: Candle[], level: Swing, kind: 'high' | 'low', until: number): number {
+  const following = candles.slice(level.index + 1, until)
+  if (!following.length) return 0
+  return kind === 'high'
+    ? level.price - Math.min(...following.map((candle) => candle.low))
+    : Math.max(...following.map((candle) => candle.high)) - level.price
 }
 
 export function findRsiDivergence(candles: Candle[]): { type: 'bullish-divergence' | 'bearish-divergence', divergence: DivergenceInfo } | undefined {
@@ -76,14 +90,16 @@ export function findRsiDivergence(candles: Candle[]): { type: 'bullish-divergenc
 
 type BreakoutState = { type: 'breakout' | 'retest', side: Side, level: MarketInfoLevel } | undefined
 
-function findBreakoutState(candles: Candle[], atr: number): BreakoutState {
+function findBreakoutState(candles: Candle[], atr: number, timeframe: LevelTimeframe): BreakoutState {
   // The last candle is live and can close back inside the range, so it never confirms a breakout.
   const lastIndex = candles.length - 2
   if (lastIndex < 3) return undefined
+  const rules = LEVEL_RULES[timeframe]
   const candidates: Array<{ level: Swing, side: Side }> = [
-    ...swings(candles, 'high').map((level) => ({ level, side: 'bullish' as const })),
-    ...swings(candles, 'low').map((level) => ({ level, side: 'bearish' as const })),
-  ].sort((left, right) => right.level.index - left.level.index)
+    ...swings(candles, 'high', rules.pivotRadius).map((level) => ({ level, side: 'bullish' as const })),
+    ...swings(candles, 'low', rules.pivotRadius).map((level) => ({ level, side: 'bearish' as const })),
+  ]
+  const detected: Array<{ state: Exclude<BreakoutState, undefined>, score: number, index: number }> = []
 
   for (const { level, side } of candidates) {
     if (level.index >= lastIndex - 1) continue
@@ -91,7 +107,6 @@ function findBreakoutState(candles: Candle[], atr: number): BreakoutState {
     const touches = candles.slice(Math.max(0, level.index - 80), level.index + 1).filter((candle) => side === 'bullish'
       ? Math.abs(candle.high - level.price) <= levelTolerance
       : Math.abs(candle.low - level.price) <= levelTolerance).length
-    if (touches < 2) continue
 
     const threshold = atr * 0.35
     let breakoutIndex = -1
@@ -105,21 +120,26 @@ function findBreakoutState(candles: Candle[], atr: number): BreakoutState {
       }
     }
     if (breakoutIndex < 0 || lastIndex - breakoutIndex > RECENT_SIGNAL_CANDLES) continue
+    const kind = side === 'bullish' ? 'high' : 'low'
+    const reversal = reversalFromLevel(candles, level, kind, breakoutIndex)
+    if (reversal < atr * rules.minimumReversalAtr) continue
 
     const current = candles[lastIndex]
     const retest = breakoutIndex < lastIndex && (side === 'bullish'
       ? current.low <= level.price + atr * 0.25 && current.low >= level.price - atr * 0.7 && current.close >= level.price
       : current.high >= level.price - atr * 0.25 && current.high <= level.price + atr * 0.7 && current.close <= level.price)
     const levelInfo = (eventIndex: number): MarketInfoLevel => ({ time: candles[level.index].time, price: level.price, eventTime: candles[eventIndex].time })
-    if (retest) return { type: 'retest', side, level: levelInfo(lastIndex) }
-    if (lastIndex - breakoutIndex <= 3) return { type: 'breakout', side, level: levelInfo(breakoutIndex) }
+    const state = retest
+      ? { type: 'retest' as const, side, level: levelInfo(lastIndex) }
+      : lastIndex - breakoutIndex <= 3 ? { type: 'breakout' as const, side, level: levelInfo(breakoutIndex) } : undefined
+    if (state) detected.push({ state, score: reversal / atr + Math.min(touches, 3) * 0.25, index: level.index })
   }
-  return undefined
+  return detected.sort((left, right) => right.score - left.score || right.index - left.index).at(0)?.state
 }
 
 type ConsolidationState = { side: Side, level: MarketInfoLevel } | undefined
 
-function findConsolidation(candles: Candle[], atr: number): ConsolidationState {
+function findConsolidation(candles: Candle[], atr: number, timeframe: LevelTimeframe): ConsolidationState {
   const rangeCandles = candles.slice(-6)
   const rangeHigh = Math.max(...rangeCandles.map((candle) => candle.high))
   const rangeLow = Math.min(...rangeCandles.map((candle) => candle.low))
@@ -127,8 +147,15 @@ function findConsolidation(candles: Candle[], atr: number): ConsolidationState {
   if (!range || range > atr * 1.5) return undefined
 
   const firstRangeIndex = candles.length - rangeCandles.length
-  const high = swings(candles, 'high').filter((point) => point.index < firstRangeIndex).at(-1)
-  const low = swings(candles, 'low').filter((point) => point.index < firstRangeIndex).at(-1)
+  const rules = LEVEL_RULES[timeframe]
+  const strongest = (kind: 'high' | 'low') => swings(candles, kind, rules.pivotRadius)
+    .filter((point) => point.index < firstRangeIndex && firstRangeIndex - point.index <= 80)
+    .map((point) => ({ point, reversal: reversalFromLevel(candles, point, kind, firstRangeIndex) }))
+    .filter(({ reversal }) => reversal >= atr * rules.minimumReversalAtr)
+    .sort((left, right) => right.reversal - left.reversal || right.point.index - left.point.index)
+    .at(0)?.point
+  const high = strongest('high')
+  const low = strongest('low')
   const current = candles.at(-1)!
   if (high && high.price >= rangeHigh && high.price - rangeHigh <= atr * 0.7 && current.close >= rangeLow + range * 0.6) return { side: 'bullish', level: { time: candles[high.index].time, price: high.price, eventTime: current.time } }
   if (low && low.price <= rangeLow && rangeLow - low.price <= atr * 0.7 && current.close <= rangeHigh - range * 0.6) return { side: 'bearish', level: { time: candles[low.index].time, price: low.price, eventTime: current.time } }
@@ -193,10 +220,10 @@ export function getMarketInfo(candles: Candle[], timeframe: MarketInfoSignal['ti
   const divergence = findRsiDivergence(candles)
   if (divergence) result.push({ type: divergence.type, timeframe, side: divergence.type === 'bullish-divergence' ? 'bullish' : 'bearish', divergence: divergence.divergence })
 
-  const breakout = findBreakoutState(candles, atr)
+  const breakout = findBreakoutState(candles, atr, timeframe)
   if (breakout) return [...result, { type: breakout.type, timeframe, side: breakout.side, level: breakout.level }]
 
-  const consolidation = findConsolidation(candles, atr)
+  const consolidation = findConsolidation(candles, atr, timeframe)
   if (consolidation) return [...result, { type: 'consolidation', timeframe, side: consolidation.side, level: consolidation.level }]
 
   const correction = findImpulseCorrection(candles, atr)
