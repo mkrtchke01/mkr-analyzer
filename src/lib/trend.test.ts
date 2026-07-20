@@ -76,8 +76,8 @@ const makeHourlyBreakoutRange = (): Candle[] => {
 
 
 const makeBreakoutRetestCandles = (): Candle[] => {
-  const candles: Candle[] = Array.from({ length: 24 }, (_, index) => ({ time: index * 300, open: 100, high: 101, low: 99, close: 100, volume: 100 }))
-  const set = (index: number, open: number, high: number, low: number, close: number) => { candles[index] = { time: index * 300, open, high, low, close, volume: 150 } }
+  const candles: Candle[] = Array.from({ length: 24 }, (_, index) => ({ time: 30000 + index * 300, open: 100, high: 101, low: 99, close: 100, volume: 100 }))
+  const set = (index: number, open: number, high: number, low: number, close: number) => { candles[index] = { time: 30000 + index * 300, open, high, low, close, volume: 150 } }
   set(12, 103, 105, 102.8, 104)
   set(18, 104, 106.5, 103.8, 106)
   set(19, 106, 107, 105.8, 106.5)
@@ -85,6 +85,26 @@ const makeBreakoutRetestCandles = (): Candle[] => {
   set(21, 106.8, 107, 104.8, 105.1)
   set(22, 105.1, 105.8, 104.9, 105.2)
   set(23, 105.2, 106.4, 105, 106)
+  return candles
+}
+
+const makeHourlyRetestRange = (): Candle[] => {
+  const candles: Candle[] = Array.from({ length: 100 }, (_, index) => ({ time: index * 300, open: 100, high: 101, low: 99, close: 100, volume: 100 }))
+  const set = (index: number, open: number, high: number, low: number, close: number) => { candles[index] = { time: index * 300, open, high, low, close, volume: 130 } }
+
+  set(48, 110, 111, 109, 110)
+  set(49, 110, 111.5, 109, 110.5)
+  set(50, 110.5, 112, 109.5, 110)
+  set(51, 110, 110.5, 107, 108)
+
+  set(68, 103, 104, 102, 103)
+  set(69, 103, 104.5, 102, 103.5)
+  set(70, 103.5, 105, 103, 104)
+  set(71, 104, 104.2, 101, 102)
+  set(72, 102, 102.5, 99, 100)
+  set(73, 100, 102, 99.5, 101)
+
+  for (let index = 88; index < 100; index += 1) set(index, 103.5, index % 2 ? 104.7 : 104.8, index % 3 ? 100.5 : 100.4, 104)
   return candles
 }
 
@@ -220,18 +240,25 @@ describe('trend analysis', () => {
   })
 
   it('builds a breakout-retest plan after a bullish reaction from the broken resistance', () => {
-    const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'strong-long')
+    const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'strong-long', { hourlyCandles: makeHourlyRetestRange() })
 
     expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'long' } })
-    expect(plan!.setupNote).toContain('Ретест пробитого уровня')
+    expect(plan!.setupNote).toContain('Ретест 1h уровня')
     expect(plan!.stop.price).toBeLessThan(plan!.stop.entry)
+    expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.5)
+    expect(plan!.takeProfits[1].price).toBeGreaterThan(plan!.takeProfits[0].price)
   })
 
   it('mirrors the breakout-retest plan for a short after resistance retest', () => {
-    const plan = calculateBreakoutRetestPlan(mirrorCandles(makeBreakoutRetestCandles()), 'strong-short')
+    const plan = calculateBreakoutRetestPlan(mirrorCandles(makeBreakoutRetestCandles()), 'strong-short', { hourlyCandles: mirrorCandles(makeHourlyRetestRange()) })
 
     expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'short' } })
     expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
+    expect(plan!.takeProfits[1].price).toBeLessThan(plan!.takeProfits[0].price)
+  })
+
+  it('does not create a breakout-retest plan without 1h level context', () => {
+    expect(calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'strong-long')).toBeNull()
   })
 
 })

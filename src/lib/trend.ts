@@ -389,7 +389,7 @@ function isSwingAt(candles: Candle[], index: number, kind: 'high' | 'low') {
     : candle.low < candles[index - 1].low && candle.low < candles[index - 2].low && candle.low <= candles[index + 1].low && candle.low <= candles[index + 2].low
 }
 
-type HourlyRange = { level: number; height: number; touches: number }
+type HourlyRange = { level: number; height: number; touches: number; endTime: number }
 
 function hasMeaningfulReaction(candles: Candle[], index: number, kind: 'high' | 'low', atr: number, until = candles.length): boolean {
   const after = candles.slice(index + 1, until)
@@ -401,18 +401,17 @@ function hasMeaningfulReaction(candles: Candle[], index: number, kind: 'high' | 
   return reaction >= atr
 }
 
-function findHourlyRangeBeforeBreakout(candles: Candle[], side: 'long' | 'short'): HourlyRange | undefined {
+function findHourlyRangeBeforeBreakout(candles: Candle[], side: 'long' | 'short', endIndex = candles.length - 1): HourlyRange | undefined {
   const atr = calculateAtr(candles)
   if (!atr || candles.length < 20) return undefined
 
-  const lastIndex = candles.length - 1
   const levelKind = side === 'long' ? 'high' : 'low'
   let best: (HourlyRange & { score: number }) | undefined
 
   for (let size = 5; size <= 12; size += 1) {
-    const start = lastIndex - size + 1
+    const start = endIndex - size + 1
     if (start < 5) continue
-    const range = candles.slice(start)
+    const range = candles.slice(start, endIndex + 1)
     const rangeHigh = Math.max(...range.map((candle) => candle.high))
     const rangeLow = Math.min(...range.map((candle) => candle.low))
     const height = rangeHigh - rangeLow
@@ -430,12 +429,21 @@ function findHourlyRangeBeforeBreakout(candles: Candle[], side: 'long' | 'short'
       if (touches < 2) continue
 
       const score = touches * 10 + size
-      if (!best || score > best.score) best = { level, height, touches, score }
+      if (!best || score > best.score) best = { level, height, touches, endTime: candles[endIndex].time, score }
       break
     }
   }
 
   return best
+}
+
+function findRecentHourlyRanges(candles: Candle[], side: 'long' | 'short'): HourlyRange[] {
+  const ranges: HourlyRange[] = []
+  for (let endIndex = candles.length - 1; endIndex >= Math.max(12, candles.length - 48); endIndex -= 1) {
+    const range = findHourlyRangeBeforeBreakout(candles, side, endIndex)
+    if (range && !ranges.some((candidate) => Math.abs(candidate.level - range.level) < range.height * 0.15)) ranges.push(range)
+  }
+  return ranges
 }
 
 function findHourlyTargets(candles: Candle[], side: 'long' | 'short', entry: number): number[] {
@@ -452,6 +460,30 @@ function findHourlyTargets(candles: Candle[], side: 'long' | 'short', entry: num
   }
 
   return targets.sort((first, second) => side === 'long' ? first - second : second - first)
+}
+
+function buildStructuralTargets(entry: number, stopPrice: number, side: 'long' | 'short', hourlyRange: HourlyRange, hourlyCandles: Candle[]): TakeProfitLevel[] | undefined {
+  const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
+  if (risk <= 0) return undefined
+
+  const direction = side === 'long' ? 1 : -1
+  const measuredTarget = hourlyRange.level + direction * hourlyRange.height
+  const candidates = [measuredTarget, ...findHourlyTargets(hourlyCandles, side, entry)]
+    .filter((price, index, prices) => (side === 'long' ? price > entry : price < entry) && prices.findIndex((candidate) => Math.abs(candidate - price) < risk * 0.15) === index)
+    .sort((first, second) => side === 'long' ? first - second : second - first)
+  if (candidates.length < 2) return undefined
+
+  const firstReward = side === 'long' ? candidates[0] - entry : entry - candidates[0]
+  if (firstReward < risk * 1.5) return undefined
+
+  const selected = candidates.slice(0, 3)
+  const shares = selected.length === 3 ? [40, 35, 25] : [50, 50]
+  return selected.map((price, index) => ({
+    id: `TP${index + 1}` as TakeProfitLevel['id'],
+    price,
+    share: shares[index],
+    riskMultiple: (side === 'long' ? price - entry : entry - price) / risk,
+  }))
 }
 
 export function calculateLevelBreakoutPlan(candles: Candle[], trend: OverallTrend, context?: LevelBreakoutContext): TradePlan | null {
@@ -484,24 +516,8 @@ export function calculateLevelBreakoutPlan(candles: Candle[], trend: OverallTren
     distanceAtr: risk / atr,
   }
 
-  const direction = side === 'long' ? 1 : -1
-  const measuredTarget = hourlyRange.level + direction * hourlyRange.height
-  const candidates = [measuredTarget, ...findHourlyTargets(context.hourlyCandles, side, entry)]
-    .filter((price, index, prices) => (side === 'long' ? price > entry : price < entry) && prices.findIndex((candidate) => Math.abs(candidate - price) < atr * 0.2) === index)
-    .sort((first, second) => side === 'long' ? first - second : second - first)
-  if (candidates.length < 2) return null
-
-  const firstReward = side === 'long' ? candidates[0] - entry : entry - candidates[0]
-  if (firstReward < risk * 1.5) return null
-
-  const selected = candidates.slice(0, 3)
-  const shares = selected.length === 3 ? [40, 35, 25] : [50, 50]
-  const takeProfits = selected.map((price, index) => ({
-    id: `TP${index + 1}` as TakeProfitLevel['id'],
-    price,
-    share: shares[index],
-    riskMultiple: (side === 'long' ? price - entry : entry - price) / risk,
-  }))
+  const takeProfits = buildStructuralTargets(entry, stopPrice, side, hourlyRange, context.hourlyCandles)
+  if (!takeProfits) return null
 
   return {
     setupType: 'level-breakout',
@@ -512,71 +528,78 @@ export function calculateLevelBreakoutPlan(candles: Candle[], trend: OverallTren
   }
 }
 
-export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTrend): TradePlan | null {
-  if (trend === 'flat' || candles.length < PERIOD + 10) return null
+function findLatestSwingAfter(candles: Candle[], kind: 'high' | 'low', afterIndex: number) {
+  for (let index = candles.length - 3; index >= afterIndex; index -= 1) {
+    if (isSwingAt(candles, index, kind)) return { index, price: kind === 'high' ? candles[index].high : candles[index].low }
+  }
+  return undefined
+}
+
+export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTrend, context?: LevelBreakoutContext): TradePlan | null {
+  if (trend === 'flat' || candles.length < PERIOD + 10 || !context) return null
 
   const side = trend === 'strong-long' ? 'long' : 'short'
-  const swingKind = side === 'long' ? 'high' : 'low'
   const atr = calculateAtr(candles)
   if (!atr) return null
 
   const lastIndex = candles.length - 1
   const current = candles[lastIndex]
-  const previous = candles[lastIndex - 1]
-  const isBounce = side === 'long'
-    ? current.close > current.open && current.close > previous.close
-    : current.close < current.open && current.close < previous.close
-  if (!isBounce) return null
+  if (!hasFiveMinuteReclaim(candles, side)) return null
 
-  for (let index = candles.length - 8; index >= Math.max(2, candles.length - 80); index -= 1) {
-    if (!isSwingAt(candles, index, swingKind)) continue
-    const level = side === 'long' ? candles[index].high : candles[index].low
-    const breakoutIndex = candles.findIndex((candle, candleIndex) => candleIndex > index && (side === 'long'
-      ? candle.close > level + atr * 0.2
-      : candle.close < level - atr * 0.2))
-    if (breakoutIndex < 0 || breakoutIndex >= lastIndex) continue
-
-    let retestIndex = -1
-    for (let candleIndex = lastIndex; candleIndex > breakoutIndex; candleIndex -= 1) {
-      const candle = candles[candleIndex]
-      const isRetest = side === 'long'
-        ? candle.low <= level + atr * 0.45 && candle.low >= level - atr * 0.6 && candle.close >= level - atr * 0.1
-        : candle.high >= level - atr * 0.45 && candle.high <= level + atr * 0.6 && candle.close <= level + atr * 0.1
-      if (isRetest) {
-        retestIndex = candleIndex
+  for (const hourlyRange of findRecentHourlyRanges(context.hourlyCandles, side)) {
+    let breakoutIndex = -1
+    for (let index = lastIndex - 1; index >= Math.max(1, lastIndex - 72); index -= 1) {
+      const candle = candles[index]
+      const previous = candles[index - 1]
+      const brokeLevel = side === 'long'
+        ? candle.close > hourlyRange.level + atr * 0.2 && previous.close <= hourlyRange.level + atr * 0.2
+        : candle.close < hourlyRange.level - atr * 0.2 && previous.close >= hourlyRange.level - atr * 0.2
+      if (candle.time >= hourlyRange.endTime && brokeLevel) {
+        breakoutIndex = index
         break
       }
     }
-    if (retestIndex < lastIndex - 2) continue
+    if (breakoutIndex < 0) continue
+
+    let retestIndex = -1
+    for (let index = lastIndex - 2; index > breakoutIndex; index -= 1) {
+      const candle = candles[index]
+      const isRetest = side === 'long'
+        ? candle.low <= hourlyRange.level + atr * 0.45 && candle.low >= hourlyRange.level - atr * 0.6 && candle.close >= hourlyRange.level - atr * 0.1
+        : candle.high >= hourlyRange.level - atr * 0.45 && candle.high <= hourlyRange.level + atr * 0.6 && candle.close <= hourlyRange.level + atr * 0.1
+      if (isRetest) {
+        retestIndex = index
+        break
+      }
+    }
+    if (retestIndex < 0 || retestIndex < lastIndex - 6) continue
 
     const holdsAfterBreakout = candles.slice(breakoutIndex + 1).every((candle) => side === 'long'
-      ? candle.close >= level - atr * 0.6
-      : candle.close <= level + atr * 0.6)
+      ? candle.close >= hourlyRange.level - atr * 0.6
+      : candle.close <= hourlyRange.level + atr * 0.6)
     if (!holdsAfterBreakout) continue
 
-    const retest = candles[retestIndex]
-    const buffer = atr * 0.25
-    const stopPrice = side === 'long' ? retest.low - buffer : retest.high + buffer
-    const entry = current.close
-    const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
+    const localStop = findLatestSwingAfter(candles, side === 'long' ? 'low' : 'high', breakoutIndex + 1)
+    if (!localStop) continue
+    const stopPrice = side === 'long' ? localStop.price - atr * 0.25 : localStop.price + atr * 0.25
+    const risk = side === 'long' ? current.close - stopPrice : stopPrice - current.close
     if (risk <= 0) continue
 
-    const direction = side === 'long' ? 1 : -1
+    const takeProfits = buildStructuralTargets(current.close, stopPrice, side, hourlyRange, context.hourlyCandles)
+    if (!takeProfits) continue
+
     return {
       setupType: 'breakout-retest',
       setupName: SETUP_META['breakout-retest'].name,
-      setupNote: `Ретест пробитого уровня ${level.toPrecision(6)} · реакция от зоны`,
+      setupNote: `Ретест 1h уровня ${hourlyRange.level.toPrecision(6)} · 5m реакция подтверждена 2 свечами`,
       stop: {
         side,
-        entry,
+        entry: current.close,
         price: stopPrice,
-        distancePercent: (risk / entry) * 100,
+        distancePercent: (risk / current.close) * 100,
         distanceAtr: risk / atr,
       },
-      takeProfits: [
-        { id: 'TP1', price: entry + direction * risk * 1.5, share: 50, riskMultiple: 1.5 },
-        { id: 'TP2', price: entry + direction * risk * 3, share: 50, riskMultiple: 3 },
-      ],
+      takeProfits,
     }
   }
 
@@ -587,6 +610,6 @@ export function calculateTradePlans(candles: Candle[], trend: OverallTrend, tren
   return [
     trendReclaimContext ? calculateTrendReclaimPlan(candles, trendReclaimContext) : null,
     calculateLevelBreakoutPlan(candles, trend, trendReclaimContext),
-    calculateBreakoutRetestPlan(candles, trend),
+    calculateBreakoutRetestPlan(candles, trend, trendReclaimContext),
   ].filter((plan): plan is TradePlan => Boolean(plan))
 }
