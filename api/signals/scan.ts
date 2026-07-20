@@ -163,7 +163,10 @@ async function scanMarket(symbol: string) {
   const confirmed = multiTimeframeCandles.map(closedCandles)
   const analyses = confirmed.map((candles, index) => analyzeTrend(candles, ANALYSIS_TIMEFRAMES[index]))
   const entryCandles = confirmed[3]
-  const plans = calculateTradePlans(entryCandles, getOverallTrend(analyses))
+  const plans = calculateTradePlans(entryCandles, getOverallTrend(analyses), {
+    fourHour: analyses[0],
+    hourlyCandles: confirmed[1],
+  })
   let created = 0
   for (const plan of plans) if (await persistPlan(symbol, plan, analyses, entryCandles)) created += 1
   return created

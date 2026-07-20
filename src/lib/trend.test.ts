@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateBreakoutRetestPlan, calculateEma, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getSetupSignal, getTrendIndicator, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateBreakoutRetestPlan, calculateEma, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -61,6 +61,17 @@ const makeBreakoutRetestCandles = (): Candle[] => {
   return candles
 }
 
+const makeHourlyPullbackCandles = (): Candle[] => {
+  const candles: Candle[] = Array.from({ length: 100 }, (_, index) => ({ time: index * 3600, open: 100, high: 101, low: 99, close: 100, volume: 100 }))
+  const set = (index: number, open: number, high: number, low: number, close: number) => { candles[index] = { time: index * 3600, open, high, low, close, volume: 140 } }
+  set(50, 98, 101, 95, 98)
+  set(70, 118, 120, 117, 119)
+  set(71, 118, 119, 115, 116)
+  for (let index = 72; index < 99; index += 1) set(index, 112, 113, 110, 112)
+  set(99, 114, 116, 113, 115)
+  return candles
+}
+
 const analysis = (timeframe: TrendAnalysis['timeframe'], direction: TrendAnalysis['direction'], strength: number): TrendAnalysis => ({
   timeframe, direction, strength, adx: 30, atr: 1, volumeRatio: 1.2, reasons: [],
 })
@@ -80,11 +91,8 @@ describe('trend analysis', () => {
   it('returns a strong long only when every timeframe confirms it', () => {
     const strongLong = [analysis('4h', 'bullish', 75), analysis('1h', 'bullish', 65), analysis('15m', 'bullish', 60), analysis('5m', 'bullish', 55)]
     expect(getOverallTrend(strongLong)).toBe('strong-long')
-    expect(getSetupSignal(strongLong, makeStoppedPullbackCandles())).toMatchObject({ type: 'trend-reclaim', side: 'long' })
     const strongShort = strongLong.map((item) => ({ ...item, direction: 'bearish' as const }))
     expect(getOverallTrend(strongShort)).toBe('strong-short')
-    expect(getSetupSignal(strongShort, mirrorCandles(makeStoppedPullbackCandles()))).toMatchObject({ type: 'trend-reclaim', side: 'short' })
-    expect(getSetupSignal(strongLong, makeCandles(0.5))).toBeUndefined()
     expect(getOverallTrend([...strongLong.slice(0, 3), analysis('5m', 'bearish', 55)])).toBe('flat')
   })
 
@@ -127,7 +135,7 @@ describe('trend analysis', () => {
 
   it('builds targets from a stopped pullback and the local high', () => {
     const candles = makeStoppedPullbackCandles()
-    const plan = calculateTradePlan(candles, 'strong-long')
+    const plan = calculateTradePlan(candles, { fourHour: analysis('4h', 'bullish', 60), hourlyCandles: makeHourlyPullbackCandles() })
     const risk = plan!.stop.entry - plan!.stop.price!
 
     expect(plan!.takeProfits).toHaveLength(2)
@@ -135,7 +143,25 @@ describe('trend analysis', () => {
     expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1)
     expect(plan!.takeProfits[1]).toMatchObject({ id: 'TP2', share: 50, riskMultiple: 3, price: plan!.stop.entry + risk * 3 })
     expect(plan!.setupType).toBe('trend-reclaim')
-    expect(plan!.setupNote).toContain('Коррекция остановлена')
+    expect(plan!.setupNote).toContain('Коррекция 1h')
+  })
+
+  it('uses 4h and a 1h Fibonacci pullback while ignoring a 15m countertrend', () => {
+    const context = { fourHour: analysis('4h', 'bullish', 60), hourlyCandles: makeHourlyPullbackCandles() }
+    const plan = calculateTradePlan(makeStoppedPullbackCandles(), context)
+
+    expect(plan).toMatchObject({ setupType: 'trend-reclaim', stop: { side: 'long' } })
+    expect(plan!.setupNote).toContain('5m подтверждён 2 свечами')
+  })
+
+  it('mirrors the 4h/1h pullback entry for a short', () => {
+    const plan = calculateTradePlan(mirrorCandles(makeStoppedPullbackCandles()), {
+      fourHour: analysis('4h', 'bearish', 60),
+      hourlyCandles: mirrorCandles(makeHourlyPullbackCandles()),
+    })
+
+    expect(plan).toMatchObject({ setupType: 'trend-reclaim', stop: { side: 'short' } })
+    expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
   })
 
   it('builds a level-breakout plan after a closed breakout of resistance', () => {
