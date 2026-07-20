@@ -434,7 +434,9 @@ function findHourlyRangeBeforeBreakout(candles: Candle[], side: 'long' | 'short'
       const touches = range.filter((candle) => side === 'long'
         ? candle.high >= level - atr * 0.35 && candle.close <= level + atr * 0.2
         : candle.low <= level + atr * 0.35 && candle.close >= level - atr * 0.2).length
-      if (touches < 2) continue
+      // Один подтверждённый контакт с уровнем достаточен для пробойных сценариев:
+      // после импульса рынок часто не успевает сформировать второе касание до выхода.
+      if (!hasEnoughBreakoutLevelTouches(touches)) continue
 
       const score = touches * 10 + size
       if (!best || score > best.score) best = { level, height, touches, endTime: candles[endIndex].time, score }
@@ -452,6 +454,10 @@ function findRecentHourlyRanges(candles: Candle[], side: 'long' | 'short'): Hour
     if (range && !ranges.some((candidate) => Math.abs(candidate.level - range.level) < range.height * 0.15)) ranges.push(range)
   }
   return ranges
+}
+
+export function hasEnoughBreakoutLevelTouches(touches: number): boolean {
+  return touches >= 1
 }
 
 function findSignificantHourlyLevels(candles: Candle[], kind: 'high' | 'low'): SignificantHourlyLevel[] {

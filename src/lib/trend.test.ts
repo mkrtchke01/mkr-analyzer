@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, hasEnoughBreakoutLevelTouches, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -191,6 +191,11 @@ describe('trend analysis', () => {
     const ema = calculateEma([1, 2, 3, 4, 5], 3)
     expect(ema.slice(0, 3)).toEqual([Number.NaN, Number.NaN, 2])
     expect(ema.at(-1)).toBe(4)
+  })
+
+  it('accepts a single confirmed touch for a breakout level', () => {
+    expect(hasEnoughBreakoutLevelTouches(0)).toBe(false)
+    expect(hasEnoughBreakoutLevelTouches(1)).toBe(true)
   })
 
   it('detects an upward and a downward trend from candles', () => {
