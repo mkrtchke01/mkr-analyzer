@@ -13,7 +13,7 @@ export type SavedSignal = {
   stopPrice: number
   initialStopPrice: number
   tp1Price: number
-  tp2Price: number
+  tp2Price?: number
   takeProfits?: TradePlan['takeProfits']
   lastPrice: number
   outcomeR: number | null
@@ -22,7 +22,7 @@ export type SavedSignal = {
 
 export function tradePlanFromSavedSignal(signal: SavedSignal): TradePlan {
   const initialRisk = Math.abs(signal.entryPrice - signal.initialStopPrice)
-  const riskMultiple = initialRisk ? Math.abs(signal.tp2Price - signal.entryPrice) / initialRisk : 3
+  const riskMultiple = initialRisk && signal.tp2Price !== undefined ? Math.abs(signal.tp2Price - signal.entryPrice) / initialRisk : 3
   return {
     setupType: signal.setupType,
     setupName: SETUP_META[signal.setupType].name,
@@ -35,10 +35,12 @@ export function tradePlanFromSavedSignal(signal: SavedSignal): TradePlan {
       distanceAtr: 0,
       reason: 'Зафиксированный стоп',
     },
-    takeProfits: signal.takeProfits ?? [
-      { id: 'TP1', price: signal.tp1Price, share: 50, riskMultiple: initialRisk ? Math.abs(signal.tp1Price - signal.entryPrice) / initialRisk : 1.5 },
-      { id: 'TP2', price: signal.tp2Price, share: 50, riskMultiple },
-    ],
+    takeProfits: signal.takeProfits ?? (signal.tp2Price === undefined
+      ? [{ id: 'TP1', price: signal.tp1Price, share: 100, riskMultiple: initialRisk ? Math.abs(signal.tp1Price - signal.entryPrice) / initialRisk : 1.5 }]
+      : [
+          { id: 'TP1', price: signal.tp1Price, share: 50, riskMultiple: initialRisk ? Math.abs(signal.tp1Price - signal.entryPrice) / initialRisk : 1.5 },
+          { id: 'TP2', price: signal.tp2Price, share: 50, riskMultiple },
+        ]),
   }
 }
 

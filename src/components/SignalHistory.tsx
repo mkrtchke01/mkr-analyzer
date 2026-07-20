@@ -63,7 +63,7 @@ export default function SignalHistory({ openSignals, onClose, onSelectSymbol }: 
         {signals.map((signal) => <button key={signal.id} className={`signal-card ${signal.side} ${selected?.id === signal.id ? 'selected' : ''}`} onClick={() => { setSelected(signal); onSelectSymbol(signal.symbol) }}>
           <span className="signal-card-main"><b>{signal.symbol.replace('USDT', '')} · {signal.side.toUpperCase()}</b><small>{SETUP_META[signal.setupType].shortName} · {SETUP_META[signal.setupType].name} · {formatTimestamp(signal.detectedAt)}</small></span>
           <span className={`signal-status-badge ${signal.status}`}>{statusText[signal.status]}</span>
-          <span className="signal-card-price">Вход {formatPrice(signal.entryPrice)}<small>Стоп {formatPrice(signal.initialStopPrice)} · TP2 {formatPrice(signal.tp2Price)}</small></span>
+          <span className="signal-card-price">Вход {formatPrice(signal.entryPrice)}<small>Стоп {formatPrice(signal.initialStopPrice)} · {signal.tp2Price === undefined ? 'TP1 — финальная цель' : `TP2 ${formatPrice(signal.tp2Price)}`}</small></span>
           <span className={signal.outcomeR === null ? 'signal-r' : signal.outcomeR >= 0 ? 'signal-r positive' : 'signal-r negative'}>{signal.outcomeR === null ? '—' : `${signal.outcomeR >= 0 ? '+' : ''}${signal.outcomeR.toFixed(2)}R`}</span>
         </button>)}
         {!signals.length && <div className="signal-empty">{loading ? 'Загружаем историю…' : state === 'open' ? 'Открытых зафиксированных сигналов пока нет' : 'Закрытых сигналов пока нет'}</div>}
