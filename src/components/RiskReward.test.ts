@@ -15,10 +15,8 @@ describe('risk reward controls', () => {
       takeProfit: 112,
       stopLoss: 96,
     })
-    expect(createRiskRewardBox('short', { price: 100, time: 10 }, { price: 96, time: 20 })).toMatchObject({
-      entry: 100,
-      takeProfit: 112,
-      stopLoss: 96,
-    })
+    const short = createRiskRewardBox('short', { price: 100, time: 10 }, { price: 96, time: 20 })
+    expect(short).toMatchObject({ entry: 100, takeProfit: 96 })
+    expect(short?.stopLoss).toBeCloseTo(101.333333)
   })
 })

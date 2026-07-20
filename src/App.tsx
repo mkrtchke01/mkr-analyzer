@@ -280,7 +280,7 @@ export default function App() {
                 {drawingMode === 'level' ? (drawingAnchor ? 'Конец уровня' : 'Начало уровня') : 'Уровень'}
               </button>
               <button className={`chart-level-toggle ${drawingMode === 'risk' ? 'active' : ''}`} onClick={() => { setDrawingMode((mode) => mode === 'risk' ? null : 'risk'); setDrawingAnchor(null) }} aria-pressed={drawingMode === 'risk'}>
-                {drawingMode === 'risk' ? (drawingAnchor ? 'TP / SL' : 'Вход') : 'TP / SL'}
+                {drawingMode === 'risk' ? (drawingAnchor ? 'Цель TP' : 'Вход') : 'TP / SL'}
               </button>
               {drawingCount > 0 && <button className="chart-level-clear" onClick={clearDrawings}>Очистить {drawingCount}</button>}
               <div className={`connection ${status}`}>

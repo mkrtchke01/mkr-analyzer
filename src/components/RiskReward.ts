@@ -13,14 +13,14 @@ export function createRiskRewardBox(
   const distance = Math.abs(target.price - entry.price)
   if (!distance) return null
 
-  const targetIsTakeProfit = target.price > entry.price
+  const isLong = target.price > entry.price
   return {
     id,
     time: entry.time,
     endTime: target.time,
     entry: entry.price,
-    takeProfit: targetIsTakeProfit ? target.price : entry.price + distance * 3,
-    stopLoss: targetIsTakeProfit ? entry.price - distance / 3 : target.price,
+    takeProfit: target.price,
+    stopLoss: isLong ? entry.price - distance / 3 : entry.price + distance / 3,
   }
 }
 
@@ -92,19 +92,27 @@ class RiskRewardPaneView implements ISeriesPrimitivePaneView {
 export class RiskRewardPrimitive implements ISeriesPrimitive<Time> {
   private chart: IChartApiBase<Time> | null = null
   private series: ISeriesApi<'Candlestick', Time> | null = null
+  private requestUpdate: (() => void) | null = null
   private readonly view = new RiskRewardPaneView()
 
-  constructor(private readonly boxes: RiskRewardBox[]) {}
+  constructor(private boxes: RiskRewardBox[]) {}
+
+  setBoxes(boxes: RiskRewardBox[]) {
+    this.boxes = boxes
+    this.requestUpdate?.()
+  }
 
   attached(parameters: SeriesAttachedParameter<Time>) {
     this.chart = parameters.chart
     this.series = parameters.series as ISeriesApi<'Candlestick', Time>
-    parameters.requestUpdate()
+    this.requestUpdate = parameters.requestUpdate
+    this.requestUpdate()
   }
 
   detached() {
     this.chart = null
     this.series = null
+    this.requestUpdate = null
   }
 
   updateAllViews() {

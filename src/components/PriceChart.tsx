@@ -3,7 +3,7 @@ import { ColorType, CrosshairMode, createChart, LineStyle, type CandlestickData,
 import { chartWebSocketUrl, getCandles, klineEventToCandle, timeframeToBybitInterval, type Candle, type Timeframe } from '../lib/bybit'
 import { SETUP_META, type ManualChartLevel, type RiskRewardBox, type TradePlan } from '../lib/trend'
 import { ChartLevelsPrimitive } from './ChartLevels'
-import { getRiskRewardHandle, RiskRewardPrimitive } from './RiskReward'
+import { createRiskRewardBox, getRiskRewardHandle, RiskRewardPrimitive } from './RiskReward'
 
 type PriceChartProps = {
   symbol: string
@@ -64,6 +64,7 @@ export default function PriceChart({ symbol, timeframe, tradePlans, manualLevels
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const tradeLinesRef = useRef<IPriceLine[]>([])
   const levelPrimitiveRef = useRef<ChartLevelsPrimitive | null>(null)
+  const riskRewardPrimitiveRef = useRef<RiskRewardPrimitive | null>(null)
   const [drawingPreview, setDrawingPreview] = useState<{ price: number, time: number } | null>(null)
 
   useEffect(() => {
@@ -147,7 +148,7 @@ export default function PriceChart({ symbol, timeframe, tradePlans, manualLevels
   useEffect(() => {
     const chart = chartRef.current
     const series = seriesRef.current
-    if (!chart || !series || drawingMode !== 'level' || !drawingAnchor) {
+    if (!chart || !series || !drawingMode || !drawingAnchor) {
       setDrawingPreview(null)
       return
     }
@@ -167,10 +168,21 @@ export default function PriceChart({ symbol, timeframe, tradePlans, manualLevels
     const series = seriesRef.current
     if (!series) return
 
-    const primitive = new RiskRewardPrimitive(riskRewards)
+    const primitive = new RiskRewardPrimitive([])
+    riskRewardPrimitiveRef.current = primitive
     series.attachPrimitive(primitive)
-    return () => series.detachPrimitive(primitive)
-  }, [riskRewards])
+    return () => {
+      series.detachPrimitive(primitive)
+      riskRewardPrimitiveRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const preview = drawingMode === 'risk' && drawingAnchor && drawingPreview
+      ? createRiskRewardBox('drawing-preview', drawingAnchor, drawingPreview)
+      : null
+    riskRewardPrimitiveRef.current?.setBoxes(preview ? [...riskRewards, preview] : riskRewards)
+  }, [drawingAnchor, drawingMode, drawingPreview, riskRewards])
 
   useEffect(() => {
     const chart = chartRef.current
