@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ColorType, CrosshairMode, createChart, LineStyle, type CandlestickData, type IChartApi, type IPriceLine, type ISeriesApi, type Time } from 'lightweight-charts'
 import { chartWebSocketUrl, getCandles, klineEventToCandle, timeframeToBybitInterval, type Candle, type Timeframe } from '../lib/bybit'
 import { calculateRsi, calculateRsiSma, type RsiPoint } from '../lib/rsi'
+import type { DivergenceInfo } from '../lib/marketInfo'
 import { SETUP_META, type ManualChartLevel, type RiskRewardBox, type TradePlan } from '../lib/trend'
 import { ChartLevelsPrimitive } from './ChartLevels'
 import { createRiskRewardBox, getRiskRewardHandle, RiskRewardPrimitive } from './RiskReward'
@@ -14,7 +15,9 @@ type PriceChartProps = {
   pricePrecision?: number
   tradePlans: TradePlan[]
   manualLevels: ManualChartLevel[]
+  rsiDivergences: Array<DivergenceInfo & { id: string }>
   riskRewards: RiskRewardBox[]
+  focusTime: number | null
   drawingMode: 'level' | 'risk' | null
   drawingAnchor: { price: number, time: number } | null
   onDrawingPoint: (point: { price: number, time: number }) => void
@@ -58,11 +61,17 @@ export function fitChartHistory(chart: Pick<IChartApi, 'timeScale'>) {
   chart.timeScale().fitContent()
 }
 
+export function focusChartOnTime(chart: Pick<IChartApi, 'timeScale'>, timeframe: Timeframe, time: number) {
+  const secondsByTimeframe: Record<Timeframe, number> = { '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 }
+  const radius = secondsByTimeframe[timeframe] * 45
+  chart.timeScale().setVisibleRange({ from: (time - radius) as Time, to: (time + radius) as Time })
+}
+
 export function manualLevelFromChartPoint(price: number, time: Time): Omit<ManualChartLevel, 'id'> {
   return { price, time: Number(time), endPrice: price, endTime: Number(time) }
 }
 
-export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrecision, tradePlans, manualLevels, riskRewards, drawingMode, drawingAnchor, onDrawingPoint, onUpdateRiskReward, onStatusChange, onPriceChange }: PriceChartProps) {
+export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrecision, tradePlans, manualLevels, rsiDivergences, riskRewards, focusTime, drawingMode, drawingAnchor, onDrawingPoint, onUpdateRiskReward, onStatusChange, onPriceChange }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -294,7 +303,8 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
         setRsiData(nextRsi)
         setRsiAverage(calculateRsiSma(nextRsi))
         setCandleCount(candles.length)
-        fitChartHistory(chart)
+        if (focusTime) focusChartOnTime(chart, timeframe, focusTime)
+        else fitChartHistory(chart)
         enableInitialVerticalPanning(chart)
         const latest = candles.at(-1)
         if (latest) onPriceChange(latest.close)
@@ -329,10 +339,10 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       if (retryId) window.clearTimeout(retryId)
       socket?.close()
     }
-  }, [symbol, timeframe, onPriceChange, onStatusChange])
+  }, [symbol, timeframe, focusTime, onPriceChange, onStatusChange])
 
   return <>
     <div className="chart-canvas" ref={containerRef} aria-label={`График ${symbol}`} />
-    <RsiPanel points={rsiData} averagePoints={rsiAverage} candleCount={candleCount} visibleRange={rsiVisibleRange} />
+    <RsiPanel points={rsiData} averagePoints={rsiAverage} candleCount={candleCount} visibleRange={rsiVisibleRange} divergences={rsiDivergences} />
   </>
 }

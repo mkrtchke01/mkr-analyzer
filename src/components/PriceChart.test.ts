@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CrosshairMode, type Time } from 'lightweight-charts'
-import { enableInitialVerticalPanning, fitChartHistory, freeCrosshairOptions, manualLevelFromChartPoint, resetPriceScaleForNewCandles } from './PriceChart'
+import { enableInitialVerticalPanning, fitChartHistory, focusChartOnTime, freeCrosshairOptions, manualLevelFromChartPoint, resetPriceScaleForNewCandles } from './PriceChart'
 
 describe('PriceChart options', () => {
   it('allows vertical panning as soon as the chart opens', () => {
@@ -42,5 +42,13 @@ describe('PriceChart options', () => {
     fitChartHistory({ timeScale: () => ({ fitContent }) } as never)
 
     expect(fitContent).toHaveBeenCalledOnce()
+  })
+
+  it('focuses the chart around a requested divergence time', () => {
+    const setVisibleRange = vi.fn()
+
+    focusChartOnTime({ timeScale: () => ({ setVisibleRange }) } as never, '4h', 1_720_000_000)
+
+    expect(setVisibleRange).toHaveBeenCalledWith({ from: 1_719_352_000, to: 1_720_648_000 })
   })
 })

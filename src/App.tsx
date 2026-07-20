@@ -5,7 +5,7 @@ import SignalHistory from './components/SignalHistory'
 import TrendPanel from './components/TrendPanel'
 import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, sortMarketsByTrend, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
 import { getSavedSignals, tradePlanFromSavedSignal, type SavedSignal } from './lib/signals'
-import { getMarketInfo, type MarketInfoSignal } from './lib/marketInfo'
+import { getMarketInfo, type DivergenceInfo, type MarketInfoSignal } from './lib/marketInfo'
 import { analyzeTrend, getTrendIndicator, SETUP_META, type ManualChartLevel, type RiskRewardBox, type SetupSignal, type TrendAnalysis, type TrendIndicator } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
@@ -55,6 +55,8 @@ export default function App() {
   const [savedOpenSignals, setSavedOpenSignals] = useState<SavedSignal[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
   const [marketInfo, setMarketInfo] = useState<MarketInfoSignal[]>([])
+  const [rsiDivergencesBySymbol, setRsiDivergencesBySymbol] = useState<Record<string, Array<DivergenceInfo & { id: string }>>>({})
+  const [chartFocusTime, setChartFocusTime] = useState<number | null>(null)
 
   useEffect(() => {
     void getMarkets()
@@ -207,6 +209,7 @@ export default function App() {
   useEffect(() => {
     setDrawingMode(null)
     setDrawingAnchor(null)
+    setChartFocusTime(null)
   }, [symbol])
 
   const selectedMarket = markets.find((market) => market.symbol === symbol)
@@ -255,10 +258,43 @@ export default function App() {
       const { [symbol]: _, ...rest } = previous
       return rest
     })
+    setRsiDivergencesBySymbol((previous) => {
+      const { [symbol]: _, ...rest } = previous
+      return rest
+    })
+  }, [symbol])
+  const showDivergence = useCallback((signal: MarketInfoSignal) => {
+    if (!signal.divergence) return
+
+    const { divergence } = signal
+    const id = `divergence-${signal.timeframe}-${divergence.first.priceTime}-${divergence.second.priceTime}`
+    setManualLevelsBySymbol((previous) => {
+      const current = previous[symbol] ?? []
+      if (current.some((level) => level.id === id)) return previous
+      return {
+        ...previous,
+        [symbol]: [...current, {
+          id,
+          time: divergence.first.priceTime,
+          price: divergence.first.price,
+          endTime: divergence.second.priceTime,
+          endPrice: divergence.second.price,
+        }],
+      }
+    })
+    setRsiDivergencesBySymbol((previous) => {
+      const current = previous[symbol] ?? []
+      if (current.some((item) => item.id === id)) return previous
+      return { ...previous, [symbol]: [...current, { id, ...divergence }] }
+    })
+    setTimeframe(signal.timeframe)
+    setChartFocusTime(divergence.second.priceTime)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [symbol])
   const manualLevels = manualLevelsBySymbol[symbol] ?? []
+  const rsiDivergences = rsiDivergencesBySymbol[symbol] ?? []
   const riskRewards = riskRewardsBySymbol[symbol] ?? []
-  const drawingCount = manualLevels.length + riskRewards.length
+  const drawingCount = manualLevels.length + riskRewards.length + rsiDivergences.length
 
   return (
     <main className="terminal-shell">
@@ -270,7 +306,7 @@ export default function App() {
           <div className="timeframe-selector" aria-label="Таймфрейм графика">
             {Object.keys(TIMEFRAMES).map((item) => {
               const value = item as Timeframe
-              return <button className={timeframe === value ? 'active' : ''} key={value} onClick={() => setTimeframe(value)}>{value}</button>
+              return <button className={timeframe === value ? 'active' : ''} key={value} onClick={() => { setTimeframe(value); setChartFocusTime(null) }}>{value}</button>
             })}
           </div>
         </header>
@@ -297,13 +333,13 @@ export default function App() {
               </div>
             </div>
           </div>
-          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} priceTickSize={selectedMarket?.tickSize} pricePrecision={selectedMarket?.pricePrecision} tradePlans={fixedTradePlans} manualLevels={manualLevels} riskRewards={riskRewards} drawingMode={drawingMode} drawingAnchor={drawingAnchor} onDrawingPoint={addDrawingPoint} onUpdateRiskReward={updateRiskReward} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
+          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} priceTickSize={selectedMarket?.tickSize} pricePrecision={selectedMarket?.pricePrecision} tradePlans={fixedTradePlans} manualLevels={manualLevels} rsiDivergences={rsiDivergences} riskRewards={riskRewards} focusTime={chartFocusTime} drawingMode={drawingMode} drawingAnchor={drawingAnchor} onDrawingPoint={addDrawingPoint} onUpdateRiskReward={updateRiskReward} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
           <footer className="chart-footer">
             <span>Свечи · {timeframe}</span>
             <span>Источник: Bybit public market data</span>
           </footer>
         </section>
-        <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} tradePlans={fixedTradePlans} marketInfo={marketInfo} />
+        <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} tradePlans={fixedTradePlans} marketInfo={marketInfo} onShowDivergence={showDivergence} />
       </section>
 
       <aside className="markets-panel">
