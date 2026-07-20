@@ -1,4 +1,5 @@
 import type { Candle, Timeframe } from './bybit.js'
+import { calculateRsi } from './rsi.js'
 export type TrendDirection = 'bullish' | 'bearish' | 'flat'
 export type OverallTrend = 'strong-long' | 'strong-short' | 'flat'
 export type SetupType = 'trend-reclaim' | 'level-breakout' | 'false-breakout' | 'bottom-reversal' | 'top-reversal' | 'breakout-retest' | 'consensus'
@@ -290,6 +291,11 @@ export type LevelBreakoutContext = {
   hourlyCandles: Candle[]
 }
 
+export type DivergenceReversalContext = {
+  hourlyCandles: Candle[]
+  fifteenMinuteCandles: Candle[]
+}
+
 type HourlyPullback = { side: 'long' | 'short', retracement: number }
 
 function findHourlyPullback(candles: Candle[], side: 'long' | 'short'): HourlyPullback | undefined {
@@ -320,7 +326,7 @@ function findHourlyPullback(candles: Candle[], side: 'long' | 'short'): HourlyPu
   return undefined
 }
 
-function hasFiveMinuteReclaim(candles: Candle[], side: 'long' | 'short'): boolean {
+function hasDirectionalReclaim(candles: Candle[], side: 'long' | 'short'): boolean {
   if (candles.length < 3) return false
   const lastThree = candles.slice(-3)
   const current = lastThree[2]
@@ -345,7 +351,7 @@ export function calculateTrendReclaimPlan(candles: Candle[], context: TrendRecla
 
   const side = fourHour.direction === 'bullish' ? 'long' : 'short'
   const hourlyPullback = findHourlyPullback(hourlyCandles, side)
-  if (!hourlyPullback || !hasFiveMinuteReclaim(candles, side)) return null
+  if (!hourlyPullback || !hasDirectionalReclaim(candles, side)) return null
 
   const atr = calculateAtr(candles)
   const entry = candles.at(-1)!.close
@@ -534,6 +540,161 @@ function findLatestSwingAfter(candles: Candle[], kind: 'high' | 'low', afterInde
   return undefined
 }
 
+type HourlyRsiDivergence = {
+  side: 'long' | 'short'
+  firstIndex: number
+  secondIndex: number
+}
+
+type FifteenMinuteReversal = {
+  level: number
+  breakoutIndex: number
+  retestIndex: number
+}
+
+function rsiAtPivot(candles: Candle[], rsiByTime: Map<number, number>, index: number, kind: 'high' | 'low') {
+  const values = candles
+    .slice(Math.max(0, index - 2), Math.min(candles.length, index + 3))
+    .map((candle) => rsiByTime.get(candle.time))
+    .filter((value): value is number => value !== undefined)
+  if (!values.length) return undefined
+  return kind === 'high' ? Math.max(...values) : Math.min(...values)
+}
+
+function findHourlyRsiDivergence(candles: Candle[]): HourlyRsiDivergence | undefined {
+  const atr = calculateAtr(candles)
+  const rsiByTime = new Map(calculateRsi(candles).map((point) => [point.time, point.value]))
+  if (!atr || rsiByTime.size === 0) return undefined
+
+  for (const [kind, side] of [['low', 'long'], ['high', 'short']] as const) {
+    for (let secondIndex = candles.length - 3; secondIndex >= Math.max(16, candles.length - 40); secondIndex -= 1) {
+      if (!isSwingAt(candles, secondIndex, kind)) continue
+      const secondRsi = rsiAtPivot(candles, rsiByTime, secondIndex, kind)
+      if (secondRsi === undefined) continue
+
+      // 10–40 candles keep the divergence visible and reject adjacent micro-pivots.
+      for (let firstIndex = secondIndex - 10; firstIndex >= Math.max(2, secondIndex - 40); firstIndex -= 1) {
+        if (!isSwingAt(candles, firstIndex, kind)) continue
+        const firstRsi = rsiAtPivot(candles, rsiByTime, firstIndex, kind)
+        if (firstRsi === undefined) continue
+        const hasDivergence = side === 'long'
+          ? candles[secondIndex].low < candles[firstIndex].low - atr * 0.25 && secondRsi > firstRsi + 3
+          : candles[secondIndex].high > candles[firstIndex].high + atr * 0.25 && secondRsi < firstRsi - 3
+        if (hasDivergence) return { side, firstIndex, secondIndex }
+      }
+    }
+  }
+
+  return undefined
+}
+
+function findFifteenMinuteReversal(candles: Candle[], side: 'long' | 'short', divergenceTime: number): FifteenMinuteReversal | undefined {
+  const atr = calculateAtr(candles)
+  if (!atr || !hasDirectionalReclaim(candles, side)) return undefined
+
+  const levelKind = side === 'long' ? 'high' : 'low'
+  const lastIndex = candles.length - 1
+  for (let pivotIndex = lastIndex - 4; pivotIndex >= 2; pivotIndex -= 1) {
+    if (candles[pivotIndex].time < divergenceTime || !isSwingAt(candles, pivotIndex, levelKind)) continue
+    const level = levelKind === 'high' ? candles[pivotIndex].high : candles[pivotIndex].low
+    let breakoutIndex = -1
+    for (let index = pivotIndex + 1; index <= lastIndex - 3; index += 1) {
+      const candle = candles[index]
+      const previous = candles[index - 1]
+      const brokeStructure = side === 'long'
+        ? candle.close > level + atr * 0.2 && previous.close <= level + atr * 0.2
+        : candle.close < level - atr * 0.2 && previous.close >= level - atr * 0.2
+      if (brokeStructure) {
+        breakoutIndex = index
+        break
+      }
+    }
+    if (breakoutIndex < 0) continue
+
+    for (let retestIndex = lastIndex - 3; retestIndex > breakoutIndex; retestIndex -= 1) {
+      const candle = candles[retestIndex]
+      const isRetest = side === 'long'
+        ? candle.low <= level + atr * 0.45 && candle.low >= level - atr * 0.6 && candle.close >= level - atr * 0.1
+        : candle.high >= level - atr * 0.45 && candle.high <= level + atr * 0.6 && candle.close <= level + atr * 0.1
+      if (isRetest) return { level, breakoutIndex, retestIndex }
+    }
+  }
+
+  return undefined
+}
+
+function findFifteenMinuteTargets(candles: Candle[], side: 'long' | 'short', entry: number): number[] {
+  const atr = calculateAtr(candles)
+  if (!atr) return []
+  const kind = side === 'long' ? 'high' : 'low'
+  const targets: number[] = []
+  for (let index = candles.length - 3; index >= Math.max(2, candles.length - 100); index -= 1) {
+    if (!isSwingAt(candles, index, kind) || !hasMeaningfulReaction(candles, index, kind, atr)) continue
+    const price = kind === 'high' ? candles[index].high : candles[index].low
+    const isAhead = side === 'long' ? price > entry + atr * 0.1 : price < entry - atr * 0.1
+    if (isAhead && !targets.some((target) => Math.abs(target - price) < atr * 0.2)) targets.push(price)
+  }
+  return targets.sort((first, second) => side === 'long' ? first - second : second - first)
+}
+
+function buildDivergenceTargets(entry: number, stopPrice: number, side: 'long' | 'short', fifteenMinuteCandles: Candle[], hourlyCandles: Candle[]): TakeProfitLevel[] | undefined {
+  const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
+  if (risk <= 0) return undefined
+
+  const candidates = [...findFifteenMinuteTargets(fifteenMinuteCandles, side, entry), ...findHourlyTargets(hourlyCandles, side, entry)]
+    .filter((price, index, prices) => (side === 'long' ? price > entry : price < entry) && prices.findIndex((candidate) => Math.abs(candidate - price) < risk * 0.15) === index)
+    .sort((first, second) => side === 'long' ? first - second : second - first)
+  if (!candidates.length) return undefined
+  const firstReward = side === 'long' ? candidates[0] - entry : entry - candidates[0]
+  if (firstReward < risk * 1.25) return undefined
+
+  const selected = candidates.slice(0, 3)
+  const shares = selected.length === 3 ? [40, 35, 25] : selected.length === 2 ? [50, 50] : [100]
+  return selected.map((price, index) => ({
+    id: `TP${index + 1}` as TakeProfitLevel['id'],
+    price,
+    share: shares[index],
+    riskMultiple: (side === 'long' ? price - entry : entry - price) / risk,
+  }))
+}
+
+export function calculateDivergenceReversalPlan(context?: DivergenceReversalContext): TradePlan | null {
+  if (!context) return null
+  const divergence = findHourlyRsiDivergence(context.hourlyCandles)
+  if (!divergence) return null
+
+  const divergenceTime = context.hourlyCandles[divergence.secondIndex].time
+  const reversal = findFifteenMinuteReversal(context.fifteenMinuteCandles, divergence.side, divergenceTime)
+  if (!reversal) return null
+
+  const atr = calculateAtr(context.fifteenMinuteCandles)
+  const entry = context.fifteenMinuteCandles.at(-1)?.close
+  const localStop = findLatestSwingAfter(context.fifteenMinuteCandles, divergence.side === 'long' ? 'low' : 'high', reversal.retestIndex)
+  if (!atr || entry === undefined || !localStop) return null
+
+  const stopPrice = divergence.side === 'long' ? localStop.price - atr * 0.25 : localStop.price + atr * 0.25
+  const risk = divergence.side === 'long' ? entry - stopPrice : stopPrice - entry
+  if (risk <= 0) return null
+  const takeProfits = buildDivergenceTargets(entry, stopPrice, divergence.side, context.fifteenMinuteCandles, context.hourlyCandles)
+  if (!takeProfits) return null
+
+  const divergenceName = divergence.side === 'long' ? 'бычья' : 'медвежья'
+  const structureName = divergence.side === 'long' ? 'обновление прошлого high' : 'обновление прошлого low'
+  return {
+    setupType: divergence.side === 'long' ? 'bottom-reversal' : 'top-reversal',
+    setupName: SETUP_META[divergence.side === 'long' ? 'bottom-reversal' : 'top-reversal'].name,
+    setupNote: `1h ${divergenceName} RSI-дивергенция (${divergence.secondIndex - divergence.firstIndex} свечей) · 15m ${structureName} · ретест ${reversal.level.toPrecision(6)} · реакция 2 из 3 свечей`,
+    stop: {
+      side: divergence.side,
+      entry,
+      price: stopPrice,
+      distancePercent: (risk / entry) * 100,
+      distanceAtr: risk / atr,
+    },
+    takeProfits,
+  }
+}
+
 export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTrend, context?: LevelBreakoutContext): TradePlan | null {
   if (trend === 'flat' || candles.length < PERIOD + 10 || !context) return null
 
@@ -543,7 +704,7 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
 
   const lastIndex = candles.length - 1
   const current = candles[lastIndex]
-  if (!hasFiveMinuteReclaim(candles, side)) return null
+  if (!hasDirectionalReclaim(candles, side)) return null
 
   for (const hourlyRange of findRecentHourlyRanges(context.hourlyCandles, side)) {
     let breakoutIndex = -1
@@ -605,10 +766,13 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
   return null
 }
 
-export function calculateTradePlans(candles: Candle[], trend: OverallTrend, trendReclaimContext?: TrendReclaimContext): TradePlan[] {
+export type TradePlansContext = TrendReclaimContext & Partial<DivergenceReversalContext>
+
+export function calculateTradePlans(candles: Candle[], trend: OverallTrend, context?: TradePlansContext): TradePlan[] {
   return [
-    trendReclaimContext ? calculateTrendReclaimPlan(candles, trendReclaimContext) : null,
-    calculateLevelBreakoutPlan(candles, trend, trendReclaimContext),
-    calculateBreakoutRetestPlan(candles, trend, trendReclaimContext),
+    context ? calculateTrendReclaimPlan(candles, context) : null,
+    calculateLevelBreakoutPlan(candles, trend, context),
+    calculateBreakoutRetestPlan(candles, trend, context),
+    context?.fifteenMinuteCandles ? calculateDivergenceReversalPlan(context as DivergenceReversalContext) : null,
   ].filter((plan): plan is TradePlan => Boolean(plan))
 }

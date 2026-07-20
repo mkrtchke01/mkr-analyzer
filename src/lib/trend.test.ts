@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateBreakoutRetestPlan, calculateEma, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -119,6 +119,51 @@ const makeHourlyPullbackCandles = (): Candle[] => {
   return candles
 }
 
+const makeHourlyBullishDivergence = (): Candle[] => {
+  const candles: Candle[] = Array.from({ length: 60 }, (_, index) => ({ time: index * 3600, open: 100, high: 100.4, low: 99.6, close: 100, volume: 100 }))
+  const set = (index: number, open: number, high: number, low: number, close: number) => { candles[index] = { time: index * 3600, open, high, low, close, volume: 150 } }
+
+  // First low is sharp; after a full recovery the lower low forms gradually with a higher RSI low.
+  set(21, 100, 100.2, 93.5, 94)
+  set(22, 94, 98.5, 93.8, 98)
+  set(23, 98, 103.5, 97.5, 103)
+  set(24, 103, 107.5, 102.5, 107)
+  set(25, 107, 110.5, 106.5, 110)
+  set(26, 110, 112, 109.5, 111)
+  for (let index = 27; index <= 46; index += 1) {
+    const close = 111 - (index - 26) * 0.85
+    set(index, close + 0.2, close + 0.45, close - 0.45, close)
+  }
+  set(47, 94, 94.3, 92.5, 93)
+  set(48, 93, 97.5, 92.8, 97)
+  set(49, 97, 101, 96.5, 100)
+  return candles
+}
+
+const makeFifteenMinuteBullishReversal = (): Candle[] => {
+  const start = 47 * 3600
+  const candles: Candle[] = Array.from({ length: 32 }, (_, index) => ({ time: start + index * 900, open: 94, high: 94.4, low: 93.6, close: 94, volume: 100 }))
+  const set = (index: number, open: number, high: number, low: number, close: number) => { candles[index] = { time: start + index * 900, open, high, low, close, volume: 150 } }
+
+  // A prior 15m swing high is the first target after the reversal.
+  set(5, 108.5, 110, 108, 109)
+  set(6, 109, 109.2, 99, 100)
+  set(7, 100, 100.2, 94, 94.5)
+
+  // The 15m change of character: break the local high, retest it, then two bullish candles.
+  set(15, 99, 100, 98.7, 99.5)
+  set(16, 99.5, 99.8, 98.5, 99)
+  set(17, 99, 99.4, 98.6, 99.2)
+  set(25, 99.8, 101.5, 99.6, 101)
+  set(26, 101, 102, 100.8, 101.6)
+  set(27, 101.6, 102.1, 100.5, 101.2)
+  set(28, 101.2, 101.5, 99.6, 100.4)
+  set(29, 100.4, 101.4, 100.1, 101.1)
+  set(30, 101.1, 102.2, 100.8, 101.8)
+  set(31, 101.8, 103, 101.5, 102.6)
+  return candles
+}
+
 const analysis = (timeframe: TrendAnalysis['timeframe'], direction: TrendAnalysis['direction'], strength: number): TrendAnalysis => ({
   timeframe, direction, strength, adx: 30, atr: 1, volumeRatio: 1.2, reasons: [],
 })
@@ -233,6 +278,19 @@ describe('trend analysis', () => {
     expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
     expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.5)
     expect(plan!.takeProfits[1].price).toBeLessThan(plan!.takeProfits[0].price)
+  })
+
+  it('builds a reversal plan only after a 10–40 candle 1h RSI divergence and 15m retest reaction', () => {
+    const plan = calculateDivergenceReversalPlan({
+      hourlyCandles: makeHourlyBullishDivergence(),
+      fifteenMinuteCandles: makeFifteenMinuteBullishReversal(),
+    })
+
+    expect(plan).toMatchObject({ setupType: 'bottom-reversal', stop: { side: 'long' } })
+    expect(plan!.setupNote).toContain('26 свечей')
+    expect(plan!.setupNote).toContain('15m')
+    expect(plan!.stop.price).toBeLessThan(plan!.stop.entry)
+    expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.25)
   })
 
   it('does not create a level-breakout plan without a 1h range context', () => {

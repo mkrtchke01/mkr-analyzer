@@ -166,9 +166,15 @@ async function scanMarket(symbol: string) {
   const plans = calculateTradePlans(entryCandles, getOverallTrend(analyses), {
     fourHour: analyses[0],
     hourlyCandles: confirmed[1],
+    fifteenMinuteCandles: confirmed[2],
   })
   let created = 0
-  for (const plan of plans) if (await persistPlan(symbol, plan, analyses, entryCandles)) created += 1
+  for (const plan of plans) {
+    const sourceCandles = plan.setupType === 'bottom-reversal' || plan.setupType === 'top-reversal'
+      ? confirmed[2]
+      : entryCandles
+    if (await persistPlan(symbol, plan, analyses, sourceCandles)) created += 1
+  }
   return created
 }
 
