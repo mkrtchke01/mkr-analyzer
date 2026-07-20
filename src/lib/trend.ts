@@ -397,7 +397,7 @@ function isSwingAt(candles: Candle[], index: number, kind: 'high' | 'low') {
 
 type HourlyRange = { level: number; height: number; touches: number; endTime: number }
 
-type SignificantHourlyLevel = { level: number; kind: 'high' | 'low'; touches: number; reactionAtr: number }
+type SignificantHourlyLevel = { level: number; kind: 'high' | 'low'; touches: number; reactionAtr: number; time: number }
 
 function hasMeaningfulReaction(candles: Candle[], index: number, kind: 'high' | 'low', atr: number, until = candles.length): boolean {
   const after = candles.slice(index + 1, until)
@@ -409,7 +409,7 @@ function hasMeaningfulReaction(candles: Candle[], index: number, kind: 'high' | 
   return reaction >= atr * 0.75
 }
 
-function findHourlyRangeBeforeBreakout(candles: Candle[], side: 'long' | 'short', endIndex = candles.length - 1): HourlyRange | undefined {
+function findHourlyRangeBeforeBreakout(candles: Candle[], side: 'long' | 'short', endIndex = candles.length - 1, minTouches = 1): HourlyRange | undefined {
   const atr = calculateAtr(candles)
   if (!atr || candles.length < 20) return undefined
 
@@ -434,7 +434,9 @@ function findHourlyRangeBeforeBreakout(candles: Candle[], side: 'long' | 'short'
       const touches = range.filter((candle) => side === 'long'
         ? candle.high >= level - atr * 0.35 && candle.close <= level + atr * 0.2
         : candle.low <= level + atr * 0.35 && candle.close >= level - atr * 0.2).length
-      if (touches < 2) continue
+      // Один подтверждённый контакт с уровнем достаточен для пробойных сценариев:
+      // после импульса рынок часто не успевает сформировать второе касание до выхода.
+      if (!hasEnoughBreakoutLevelTouches(touches, minTouches)) continue
 
       const score = touches * 10 + size
       if (!best || score > best.score) best = { level, height, touches, endTime: candles[endIndex].time, score }
@@ -445,13 +447,8 @@ function findHourlyRangeBeforeBreakout(candles: Candle[], side: 'long' | 'short'
   return best
 }
 
-function findRecentHourlyRanges(candles: Candle[], side: 'long' | 'short'): HourlyRange[] {
-  const ranges: HourlyRange[] = []
-  for (let endIndex = candles.length - 1; endIndex >= Math.max(12, candles.length - 48); endIndex -= 1) {
-    const range = findHourlyRangeBeforeBreakout(candles, side, endIndex)
-    if (range && !ranges.some((candidate) => Math.abs(candidate.level - range.level) < range.height * 0.15)) ranges.push(range)
-  }
-  return ranges
+export function hasEnoughBreakoutLevelTouches(touches: number, minTouches = 1): boolean {
+  return touches >= minTouches
 }
 
 function findSignificantHourlyLevels(candles: Candle[], kind: 'high' | 'low'): SignificantHourlyLevel[] {
@@ -474,10 +471,23 @@ function findSignificantHourlyLevels(candles: Candle[], kind: 'high' | 'low'): S
       ? candle.close > level + atr * 0.35
       : candle.close < level - atr * 0.35).length
     if ((touches < 2 && reactionAtr < 1.5) || invalidatingCloses > 1) continue
-    if (!levels.some((candidate) => Math.abs(candidate.level - level) < atr * 0.2)) levels.push({ level, kind, touches, reactionAtr })
+    if (!levels.some((candidate) => Math.abs(candidate.level - level) < atr * 0.2)) levels.push({ level, kind, touches, reactionAtr, time: candles[index].time })
   }
 
   return levels
+}
+
+function findRecentHourlyRetestLevels(candles: Candle[], side: 'long' | 'short'): HourlyRange[] {
+  const atr = calculateAtr(candles)
+  if (!atr) return []
+  const kind = side === 'long' ? 'high' : 'low'
+  return findSignificantHourlyLevels(candles, kind).map((level) => ({
+    level: level.level,
+    // For a lone pivot there is no consolidation height. Keep the measured target bounded by volatility.
+    height: Math.min(atr * 3, Math.max(atr * 1.5, atr * level.reactionAtr)),
+    touches: level.touches,
+    endTime: level.time,
+  }))
 }
 
 function findHourlyTargets(candles: Candle[], side: 'long' | 'short', entry: number): number[] {
@@ -600,7 +610,7 @@ export function calculateLevelBreakoutPlan(candles: Candle[], trend: OverallTren
 
   const side = trend === 'strong-long' ? 'long' : 'short'
   const atr = calculateAtr(candles)
-  const hourlyRange = findHourlyRangeBeforeBreakout(context.hourlyCandles, side)
+  const hourlyRange = findHourlyRangeBeforeBreakout(context.hourlyCandles, side, context.hourlyCandles.length - 1, 2)
   if (!atr || !hourlyRange) return null
 
   const entryCandle = candles.at(-1)!
@@ -810,7 +820,7 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
   const current = candles[lastIndex]
   if (!hasDirectionalReclaim(candles, side)) return null
 
-  for (const hourlyRange of findRecentHourlyRanges(context.hourlyCandles, side)) {
+  for (const hourlyRange of findRecentHourlyRetestLevels(context.hourlyCandles, side)) {
     let breakoutIndex = -1
     for (let index = lastIndex - 1; index >= Math.max(1, lastIndex - 144); index -= 1) {
       const candle = candles[index]

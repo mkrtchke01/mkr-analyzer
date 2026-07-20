@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, hasEnoughBreakoutLevelTouches, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -126,6 +126,25 @@ const makeHourlyRetestRange = (): Candle[] => {
   return candles
 }
 
+const makeHourlyRetestPivot = (): Candle[] => {
+  const candles: Candle[] = Array.from({ length: 100 }, (_, index) => ({ time: index * 300, open: 100, high: 101, low: 99, close: 100, volume: 100 }))
+  const set = (index: number, open: number, high: number, low: number, close: number) => { candles[index] = { time: index * 300, open, high, low, close, volume: 130 } }
+
+  // A lone 1h pivot high with a strong reaction; no compact range is formed below it.
+  set(48, 110, 111, 109, 110)
+  set(49, 110, 111.5, 109, 110.5)
+  set(50, 110.5, 112, 109.5, 110)
+  set(51, 110, 110.5, 107, 108)
+  set(68, 103, 104, 102, 103)
+  set(69, 103, 104.5, 102, 103.5)
+  set(70, 103.5, 105, 103, 104)
+  set(71, 104, 104.2, 101, 102)
+  set(72, 102, 102.5, 99, 100)
+  set(73, 100, 102, 99.5, 101)
+  for (let index = 74; index < 100; index += 1) set(index, 102, 103, 101, 102)
+  return candles
+}
+
 const makeHourlyPullbackCandles = (): Candle[] => {
   const candles: Candle[] = Array.from({ length: 100 }, (_, index) => ({ time: index * 3600, open: 100, high: 101, low: 99, close: 100, volume: 100 }))
   const set = (index: number, open: number, high: number, low: number, close: number) => { candles[index] = { time: index * 3600, open, high, low, close, volume: 140 } }
@@ -191,6 +210,13 @@ describe('trend analysis', () => {
     const ema = calculateEma([1, 2, 3, 4, 5], 3)
     expect(ema.slice(0, 3)).toEqual([Number.NaN, Number.NaN, 2])
     expect(ema.at(-1)).toBe(4)
+  })
+
+  it('requires a range touch count selected by the breakout setup', () => {
+    expect(hasEnoughBreakoutLevelTouches(0)).toBe(false)
+    expect(hasEnoughBreakoutLevelTouches(1)).toBe(true)
+    expect(hasEnoughBreakoutLevelTouches(1, 2)).toBe(false)
+    expect(hasEnoughBreakoutLevelTouches(2, 2)).toBe(true)
   })
 
   it('detects an upward and a downward trend from candles', () => {
@@ -342,6 +368,14 @@ describe('trend analysis', () => {
     expect(plan!.stop.price).toBeLessThan(plan!.stop.entry)
     expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.5)
     expect(plan!.takeProfits[1].price).toBeGreaterThan(plan!.takeProfits[0].price)
+  })
+
+  it('builds a breakout-retest plan from a lone significant 1h pivot without consolidation', () => {
+    const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'strong-long', { hourlyCandles: makeHourlyRetestPivot() })
+
+    expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'long' } })
+    expect(plan!.setupNote).toContain('Ретест 1h уровня')
+    expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.25)
   })
 
   it('mirrors the breakout-retest plan for a short after resistance retest', () => {
