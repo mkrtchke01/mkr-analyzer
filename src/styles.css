@@ -34,3 +34,7 @@ button { cursor: pointer; }
 @media (min-width: 801px) { .workspace { height: auto; min-height: 100vh; }.chart-panel { height: calc(100vh - 110px); min-height: 640px; flex: 0 0 auto; }.markets-panel { position: sticky; top: 0; align-self: start; } }
 
 .rsi-average { fill: none; stroke: #f2c15d; stroke-width: 1.15; vector-effect: non-scaling-stroke; }
+
+/* Keep the indicator's drawing area equal to the candlestick plot, excluding its right price scale. */
+.rsi-panel { padding-right: 80px; }
+.rsi-level { right: 86px; }

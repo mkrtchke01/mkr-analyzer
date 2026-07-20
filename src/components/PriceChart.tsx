@@ -152,6 +152,7 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
     if (!chart) return
     const syncRsiRange = (range: { from: number, to: number } | null) => setRsiVisibleRange(range)
     chart.timeScale().subscribeVisibleLogicalRangeChange(syncRsiRange)
+    syncRsiRange(chart.timeScale().getVisibleLogicalRange())
     return () => chart.timeScale().unsubscribeVisibleLogicalRangeChange(syncRsiRange)
   }, [])
 
