@@ -88,6 +88,13 @@ export function filterMarketList(markets: Market[], query: string, setupSymbols:
   return markets.filter((market) => market.symbol.includes(normalizedQuery) && (!setupsOnly || setupSymbols.has(market.symbol)))
 }
 
+export function sortMarketsByTrend(markets: Market[], strengths: Record<string, number>, direction: 'asc' | 'desc'): Market[] {
+  return [...markets].sort((left, right) => {
+    const difference = (strengths[left.symbol] ?? 0) - (strengths[right.symbol] ?? 0)
+    return direction === 'desc' ? -difference : difference
+  })
+}
+
 export function getNextMarketSymbol(markets: Market[], currentSymbol: string): string | undefined {
   if (!markets.length) return undefined
 

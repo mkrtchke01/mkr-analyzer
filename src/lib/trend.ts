@@ -53,6 +53,11 @@ export type ManualChartLevel = {
   endTime: number
 }
 
+export type TrendIndicator = {
+  direction: TrendDirection
+  strength: number
+}
+
 export type RiskRewardBox = {
   id: string
   time: number
@@ -217,6 +222,18 @@ export function getOverallTrend(analyses: TrendAnalysis[]): OverallTrend {
   if (allBullish && global.strength >= 60 && confirmation.strength >= 50 && weightedStrength >= 55) return 'strong-long'
   if (allBearish && global.strength >= 60 && confirmation.strength >= 50 && weightedStrength >= 55) return 'strong-short'
   return 'flat'
+}
+
+export function getTrendIndicator(analyses: TrendAnalysis[]): TrendIndicator {
+  const weights: Partial<Record<TrendAnalysis['timeframe'], number>> = { '4h': 0.4, '1h': 0.3, '15m': 0.2, '5m': 0.1 }
+  const strength = Math.round(analyses.reduce((sum, analysis) => sum + analysis.strength * (weights[analysis.timeframe] ?? 0), 0))
+  const directionScore = analyses.reduce((sum, analysis) => {
+    const sign = analysis.direction === 'bullish' ? 1 : analysis.direction === 'bearish' ? -1 : 0
+    return sum + sign * analysis.strength * (weights[analysis.timeframe] ?? 0)
+  }, 0)
+
+  if (directionScore === 0) return { direction: 'flat', strength }
+  return { direction: directionScore > 0 ? 'bullish' : 'bearish', strength }
 }
 
 export function getSetupSignal(analyses: TrendAnalysis[], candles: Candle[]): SetupSignal | undefined {

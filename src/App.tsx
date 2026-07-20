@@ -3,9 +3,9 @@ import PriceChart from './components/PriceChart'
 import { createRiskRewardBox } from './components/RiskReward'
 import SignalHistory from './components/SignalHistory'
 import TrendPanel from './components/TrendPanel'
-import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
+import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, sortMarketsByTrend, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
 import { getSavedSignals, tradePlanFromSavedSignal, type SavedSignal } from './lib/signals'
-import { analyzeTrend, getOverallTrend, SETUP_META, type ManualChartLevel, type OverallTrend, type RiskRewardBox, type SetupSignal, type TrendAnalysis } from './lib/trend'
+import { analyzeTrend, getTrendIndicator, SETUP_META, type ManualChartLevel, type RiskRewardBox, type SetupSignal, type TrendAnalysis, type TrendIndicator } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
   { symbol: 'BTCUSDT', price: 0, change: 0, turnover: 0 },
@@ -19,7 +19,7 @@ const SCAN_CONCURRENCY = 3
 const SAVED_SIGNAL_REFRESH_INTERVAL = 5_000
 type DrawingMode = 'level' | 'risk' | null
 type ChartPoint = { price: number, time: number }
-type MarketTrend = { direction: 'bullish' | 'bearish' | 'flat', strength: number }
+type TrendSort = 'none' | 'asc' | 'desc'
 
 function baseAsset(symbol: string) {
   return symbol.replace('USDT', '')
@@ -29,12 +29,6 @@ function formatTurnover(turnover: number) {
   if (turnover >= 1_000_000_000) return `$${(turnover / 1_000_000_000).toFixed(2)}B`
   if (turnover >= 1_000_000) return `$${(turnover / 1_000_000).toFixed(1)}M`
   return `$${(turnover / 1_000).toFixed(0)}K`
-}
-
-function getMarketTrend(analyses: TrendAnalysis[]): MarketTrend {
-  const overall = getOverallTrend(analyses)
-  const strength = Math.round(analyses.reduce((sum, analysis, index) => sum + analysis.strength * [0.4, 0.3, 0.2, 0.1][index], 0))
-  return { direction: overall === 'strong-long' ? 'bullish' : overall === 'strong-short' ? 'bearish' : 'flat', strength }
 }
 
 export default function App() {
@@ -54,7 +48,8 @@ export default function App() {
   const [drawingMode, setDrawingMode] = useState<DrawingMode>(null)
   const [drawingAnchor, setDrawingAnchor] = useState<ChartPoint | null>(null)
   const [marketsReady, setMarketsReady] = useState(false)
-  const [marketTrends, setMarketTrends] = useState<Record<string, MarketTrend>>({})
+  const [marketTrends, setMarketTrends] = useState<Record<string, TrendIndicator>>({})
+  const [trendSort, setTrendSort] = useState<TrendSort>('none')
   const [setupScanning, setSetupScanning] = useState(false)
   const [savedOpenSignals, setSavedOpenSignals] = useState<SavedSignal[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -75,7 +70,7 @@ export default function App() {
     const symbols = markets.map((market) => market.symbol)
     const scanSetups = async () => {
       setSetupScanning(true)
-      const trends: Record<string, MarketTrend> = {}
+      const trends: Record<string, TrendIndicator> = {}
       let nextIndex = 0
       const scanOne = async () => {
         while (nextIndex < symbols.length) {
@@ -84,7 +79,9 @@ export default function App() {
           try {
             const candles = await Promise.all(ANALYSIS_TIMEFRAMES.map((item) => getCandles(currentSymbol, item, 120)))
             const analyses = candles.map((items, index) => analyzeTrend(items, ANALYSIS_TIMEFRAMES[index]))
-            trends[currentSymbol] = getMarketTrend(analyses)
+            const trend = getTrendIndicator(analyses)
+            trends[currentSymbol] = trend
+            if (!disposed) setMarketTrends((previous) => ({ ...previous, [currentSymbol]: trend }))
           } catch {
             // A single unavailable market must not interrupt the complete scan.
           }
@@ -161,9 +158,16 @@ export default function App() {
   }, [savedOpenSignals])
 
   const setupSymbols = useMemo(() => new Set(Object.keys(activeMarketSetups)), [activeMarketSetups])
+  const trendStrengths = useMemo(
+    () => Object.fromEntries(Object.entries(marketTrends).map(([marketSymbol, trend]) => [marketSymbol, trend.strength])),
+    [marketTrends],
+  )
   const visibleMarkets = useMemo(
-    () => filterMarketList(markets, search, setupSymbols, setupsOnly).slice(0, 80),
-    [markets, search, setupSymbols, setupsOnly],
+    () => {
+      const filtered = filterMarketList(markets, search, setupSymbols, setupsOnly)
+      return (trendSort === 'none' ? filtered : sortMarketsByTrend(filtered, trendStrengths, trendSort)).slice(0, 80)
+    },
+    [markets, search, setupSymbols, setupsOnly, trendSort, trendStrengths],
   )
 
   useEffect(() => {
@@ -313,7 +317,7 @@ export default function App() {
           <span>Только сетапы</span>
           <b>{Object.keys(activeMarketSetups).length}</b>
         </label>
-        <div className="list-label"><span>ПАРА</span><span>ТРЕНД</span><span>ЦЕНА / 24Ч</span></div>
+        <div className="list-label"><span>ПАРА</span><button className={`trend-sort ${trendSort !== 'none' ? 'active' : ''}`} onClick={() => setTrendSort((current) => current === 'none' ? 'desc' : current === 'desc' ? 'asc' : 'none')} aria-label="Сортировать по силе тренда">ТРЕНД <i>{trendSort === 'desc' ? '↓' : trendSort === 'asc' ? '↑' : '↕'}</i></button><span>ЦЕНА / 24Ч</span></div>
         <div className="market-list">
           {visibleMarkets.map((market) => (
             <button className={`market-row ${market.symbol === symbol ? 'selected' : ''} ${activeMarketSetups[market.symbol]?.[0] ? `setup-${activeMarketSetups[market.symbol]![0].side}` : ''}`} key={market.symbol} onClick={() => setSymbol(market.symbol)}>

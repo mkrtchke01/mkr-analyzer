@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateBreakoutRetestPlan, calculateEma, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getSetupSignal, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateBreakoutRetestPlan, calculateEma, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getSetupSignal, getTrendIndicator, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -85,6 +85,14 @@ describe('trend analysis', () => {
     expect(getSetupSignal(strongShort, mirrorCandles(makeStoppedPullbackCandles()))).toMatchObject({ type: 'trend-reclaim', side: 'short' })
     expect(getSetupSignal(strongLong, makeCandles(0.5))).toBeUndefined()
     expect(getOverallTrend([...strongLong.slice(0, 3), analysis('5m', 'bearish', 55)])).toBe('flat')
+  })
+
+  it('colors a market by the dominant weighted direction even without full confirmation', () => {
+    const mixed = [analysis('4h', 'bullish', 70), analysis('1h', 'bearish', 30), analysis('15m', 'bullish', 50), analysis('5m', 'bullish', 40)]
+
+    expect(getOverallTrend(mixed)).toBe('flat')
+    expect(getTrendIndicator(mixed)).toEqual({ direction: 'bullish', strength: 51 })
+    expect(getTrendIndicator(mixed.map((item) => ({ ...item, direction: 'flat' as const })))).toEqual({ direction: 'flat', strength: 51 })
   })
 
   it('puts a long stop below the last confirmed swing low with an ATR buffer', () => {
