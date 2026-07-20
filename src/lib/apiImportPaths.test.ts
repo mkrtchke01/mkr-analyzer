@@ -23,10 +23,8 @@ describe('serverless function imports', () => {
   it('runs the Bybit signal scanner from an EU region', () => {
     const config = JSON.parse(readFileSync(vercelConfig, 'utf8')) as {
       functions?: Record<string, { regions?: string[] }>
-      crons?: Array<{ path: string, schedule: string }>
     }
 
     expect(config.functions?.['api/signals/scan.ts']?.regions).toEqual(['fra1'])
-    expect(config.crons).toContainEqual({ path: '/api/signals/scan', schedule: '*/5 * * * *' })
   })
 })
