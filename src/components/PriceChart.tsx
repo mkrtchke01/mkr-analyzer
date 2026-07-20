@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { ColorType, CrosshairMode, createChart, LineStyle, type CandlestickData, type IChartApi, type IPriceLine, type ISeriesApi, type Time } from 'lightweight-charts'
 import { chartWebSocketUrl, getCandles, klineEventToCandle, timeframeToBybitInterval, type Candle, type Timeframe } from '../lib/bybit'
+import { calculateRsi, type RsiPoint } from '../lib/rsi'
 import { SETUP_META, type ManualChartLevel, type RiskRewardBox, type TradePlan } from '../lib/trend'
 import { ChartLevelsPrimitive } from './ChartLevels'
 import { createRiskRewardBox, getRiskRewardHandle, RiskRewardPrimitive } from './RiskReward'
+import RsiPanel from './RsiPanel'
 
 type PriceChartProps = {
   symbol: string
@@ -64,10 +66,14 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const candlesRef = useRef<Candle[]>([])
   const tradeLinesRef = useRef<IPriceLine[]>([])
   const levelPrimitiveRef = useRef<ChartLevelsPrimitive | null>(null)
   const riskRewardPrimitiveRef = useRef<RiskRewardPrimitive | null>(null)
   const [drawingPreview, setDrawingPreview] = useState<{ price: number, time: number } | null>(null)
+  const [rsiData, setRsiData] = useState<RsiPoint[]>([])
+  const [candleCount, setCandleCount] = useState(0)
+  const [rsiVisibleRange, setRsiVisibleRange] = useState<{ from: number, to: number } | null>(null)
 
   useEffect(() => {
     const container = containerRef.current
@@ -138,6 +144,14 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       series.detachPrimitive(levelPrimitive)
       levelPrimitiveRef.current = null
     }
+  }, [])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart) return
+    const syncRsiRange = (range: { from: number, to: number } | null) => setRsiVisibleRange(range)
+    chart.timeScale().subscribeVisibleLogicalRangeChange(syncRsiRange)
+    return () => chart.timeScale().unsubscribeVisibleLogicalRangeChange(syncRsiRange)
   }, [])
 
   useEffect(() => {
@@ -257,6 +271,10 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
 
     const displayCandle = (candle: Candle) => {
       series.update(candle as unknown as CandlestickData<Time>)
+      const current = candlesRef.current
+      candlesRef.current = current.at(-1)?.time === candle.time ? [...current.slice(0, -1), candle] : [...current, candle]
+      setRsiData(calculateRsi(candlesRef.current))
+      setCandleCount(candlesRef.current.length)
       onPriceChange(candle.close)
     }
 
@@ -267,6 +285,9 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
         if (disposed) return
         resetPriceScaleForNewCandles(chart)
         series.setData(candles as unknown as CandlestickData<Time>[])
+        candlesRef.current = candles
+        setRsiData(calculateRsi(candles))
+        setCandleCount(candles.length)
         fitChartHistory(chart)
         enableInitialVerticalPanning(chart)
         const latest = candles.at(-1)
@@ -304,5 +325,8 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
     }
   }, [symbol, timeframe, onPriceChange, onStatusChange])
 
-  return <div className="chart-canvas" ref={containerRef} aria-label={`График ${symbol}`} />
+  return <>
+    <div className="chart-canvas" ref={containerRef} aria-label={`График ${symbol}`} />
+    <RsiPanel points={rsiData} candleCount={candleCount} visibleRange={rsiVisibleRange} />
+  </>
 }
