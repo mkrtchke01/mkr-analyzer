@@ -26,7 +26,7 @@ export const TIMEFRAMES = {
 
 export type Timeframe = keyof typeof TIMEFRAMES
 
-const MIN_TURNOVER = 10_000_000
+export const MARKET_LIST_LIMIT = 150
 const STABLE_BASE_ASSETS = new Set(['USDC', 'USDT'])
 
 type KlineResponse = {
@@ -104,9 +104,10 @@ export function filterMarkets(markets: Market[]): Market[] {
   return markets
     .filter((market) => {
       const baseAsset = market.symbol.replace('USDT', '')
-      return !STABLE_BASE_ASSETS.has(baseAsset) && market.turnover >= MIN_TURNOVER
+      return !STABLE_BASE_ASSETS.has(baseAsset)
     })
     .sort((left, right) => right.turnover - left.turnover)
+    .slice(0, MARKET_LIST_LIMIT)
 }
 
 export function filterMarketList(markets: Market[], query: string, setupSymbols: ReadonlySet<string>, setupsOnly: boolean): Market[] {

@@ -3,7 +3,7 @@ import PriceChart from './components/PriceChart'
 import { createRiskRewardBox } from './components/RiskReward'
 import SignalHistory from './components/SignalHistory'
 import TrendPanel from './components/TrendPanel'
-import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, sortMarketsByTrend, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
+import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, MARKET_LIST_LIMIT, sortMarketsByTrend, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
 import { getSavedSignals, tradePlanFromSavedSignal, type SavedSignal } from './lib/signals'
 import { getMarketInfo, type DivergenceInfo, type MarketInfoSignal } from './lib/marketInfo'
 import { analyzeTrend, getTrendIndicator, SETUP_META, type ManualChartLevel, type RiskRewardBox, type SetupSignal, type TrendAnalysis, type TrendIndicator } from './lib/trend'
@@ -176,7 +176,7 @@ export default function App() {
   const visibleMarkets = useMemo(
     () => {
       const filtered = filterMarketList(markets, search, setupSymbols, setupsOnly)
-      return (trendSort === 'none' ? filtered : sortMarketsByTrend(filtered, trendStrengths, trendSort)).slice(0, 80)
+      return (trendSort === 'none' ? filtered : sortMarketsByTrend(filtered, trendStrengths, trendSort)).slice(0, MARKET_LIST_LIMIT)
     },
     [markets, search, setupSymbols, setupsOnly, trendSort, trendStrengths],
   )

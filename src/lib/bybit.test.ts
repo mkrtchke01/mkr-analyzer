@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { filterMarketList, filterMarkets, formatPrice, getCandles, getMarkets, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, pricePrecisionFromTickSize, sortMarketsByTrend, timeframeToBybitInterval } from './bybit'
+import { filterMarketList, filterMarkets, formatPrice, getCandles, getMarkets, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, MARKET_LIST_LIMIT, pricePrecisionFromTickSize, sortMarketsByTrend, timeframeToBybitInterval } from './bybit'
 
 describe('Bybit market data conversion', () => {
   it('converts reverse-ordered REST klines into chronological candles', () => {
@@ -38,7 +38,7 @@ describe('Bybit market data conversion', () => {
     expect(timeframeToBybitInterval('1d')).toBe('D')
   })
 
-  it('keeps only USDT perpetual markets with at least $10m volume and no stablecoins', () => {
+  it('keeps the 150 most liquid USDT perpetual markets and excludes stablecoins', () => {
     const markets = filterMarkets([
       { symbol: 'BTCUSDT', price: 64000, change: 1, turnover: 50_000_000 },
       { symbol: 'ETHUSDT', price: 3000, change: -1, turnover: 10_000_000 },
@@ -47,7 +47,22 @@ describe('Bybit market data conversion', () => {
       { symbol: 'USDTUSDT', price: 1, change: 0, turnover: 100_000_000 },
     ])
 
-    expect(markets.map((market) => market.symbol)).toEqual(['BTCUSDT', 'ETHUSDT'])
+    expect(markets.map((market) => market.symbol)).toEqual(['BTCUSDT', 'ETHUSDT', 'SOLUSDT'])
+  })
+
+  it('caps the market list at 150 pairs ordered by 24-hour turnover', () => {
+    const markets = Array.from({ length: MARKET_LIST_LIMIT + 5 }, (_, index) => ({
+      symbol: `COIN${index}USDT`,
+      price: 1,
+      change: 0,
+      turnover: index,
+    }))
+
+    const filtered = filterMarkets(markets)
+
+    expect(filtered).toHaveLength(MARKET_LIST_LIMIT)
+    expect(filtered[0].symbol).toBe(`COIN${MARKET_LIST_LIMIT + 4}USDT`)
+    expect(filtered.at(-1)?.symbol).toBe('COIN5USDT')
   })
 
   it('selects the next market and wraps to the beginning of the list', () => {
