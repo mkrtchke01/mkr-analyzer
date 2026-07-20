@@ -18,7 +18,7 @@ type StoredSignal = {
   stop_price: string
   initial_stop_price: string
   tp1_price: string
-  tp2_price: string
+  tp2_price: string | null
   tp3_price: string | null
   tp1_risk_multiple: string
   tp2_risk_multiple: string | null
@@ -70,10 +70,10 @@ async function monitorSignal(signal: StoredSignal) {
     stopPrice: Number(signal.stop_price),
     initialStopPrice: Number(signal.initial_stop_price),
     tp1Price: Number(signal.tp1_price),
-    tp2Price: Number(signal.tp2_price),
+    tp2Price: signal.tp2_price === null ? undefined : Number(signal.tp2_price),
     tp3Price: signal.tp3_price === null ? undefined : Number(signal.tp3_price),
     tp1RiskMultiple: Number(signal.tp1_risk_multiple),
-    tp2RiskMultiple: signal.tp2_risk_multiple === null ? Math.abs(Number(signal.tp2_price) - Number(signal.entry_price)) / Math.abs(Number(signal.entry_price) - Number(signal.initial_stop_price)) : Number(signal.tp2_risk_multiple),
+    tp2RiskMultiple: signal.tp2_price === null ? undefined : signal.tp2_risk_multiple === null ? Math.abs(Number(signal.tp2_price) - Number(signal.entry_price)) / Math.abs(Number(signal.entry_price) - Number(signal.initial_stop_price)) : Number(signal.tp2_risk_multiple),
   }
   const pendingCandles = candles.filter((candle) => candle.time > signal.last_checked_candle_time)
   let currentState = signalState
@@ -85,7 +85,7 @@ async function monitorSignal(signal: StoredSignal) {
       await patchSignal(signal.id, baseUpdate)
       continue
     }
-    if (outcome.type === 'tp1' || (outcome.type === 'tp2' && outcome.nextStopPrice !== undefined)) {
+    if ((outcome.type === 'tp1' || outcome.type === 'tp2') && outcome.nextStopPrice !== undefined) {
       const nextStatus = outcome.type
       await patchSignal(signal.id, { ...baseUpdate, status: nextStatus, stop_price: outcome.nextStopPrice, outcome_r: outcome.outcomeR })
       await createEvent(signal.id, nextStatus, candle, { movedStopTo: outcome.nextStopPrice, outcomeR: outcome.outcomeR })
@@ -130,9 +130,9 @@ async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnaly
     initial_stop_price: plan.stop.price,
     stop_price: plan.stop.price,
     tp1_price: plan.takeProfits[0].price,
-    tp2_price: plan.takeProfits[1].price,
+    tp2_price: plan.takeProfits[1]?.price ?? null,
     tp1_risk_multiple: plan.takeProfits[0].riskMultiple,
-    tp2_risk_multiple: plan.takeProfits[1].riskMultiple,
+    tp2_risk_multiple: plan.takeProfits[1]?.riskMultiple ?? null,
     tp3_price: plan.takeProfits[2]?.price ?? null,
     last_price: confirmationCandle.close,
     trend_snapshot: analyses,
@@ -159,7 +159,7 @@ async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnaly
 }
 
 async function scanMarket(symbol: string) {
-  const multiTimeframeCandles = await Promise.all(ANALYSIS_TIMEFRAMES.map((timeframe) => getCandles(symbol, timeframe, 180)))
+  const multiTimeframeCandles = await Promise.all(ANALYSIS_TIMEFRAMES.map((timeframe) => getCandles(symbol, timeframe, timeframe === '5m' ? 360 : 180)))
   const confirmed = multiTimeframeCandles.map(closedCandles)
   const analyses = confirmed.map((candles, index) => analyzeTrend(candles, ANALYSIS_TIMEFRAMES[index]))
   const entryCandles = confirmed[3]
@@ -178,7 +178,7 @@ export default async function handler(request: any, response: any) {
 
   try {
     const storedOpenSignals = await supabaseRequest<StoredSignal[]>('/rest/v1/mkr_signals?select=*&status=in.(active,tp1,tp2)')
-    const openSignals = storedOpenSignals.filter((signal) => signal.status !== 'tp2' || signal.tp3_price !== null)
+    const openSignals = storedOpenSignals.filter((signal) => (signal.status === 'tp1' && signal.tp2_price !== null) || (signal.status === 'tp2' && signal.tp3_price !== null) || signal.status === 'active')
     let monitored = 0
     await runWithConcurrency(openSignals, async (signal) => {
       try {

@@ -23,4 +23,9 @@ describe('signal lifecycle', () => {
     expect(evaluateSignalCandle(threeTargets, { time: 1, open: 111, high: 116, low: 110, close: 115, volume: 1 })).toMatchObject({ type: 'tp2', nextStopPrice: 100 })
     expect(evaluateSignalCandle({ ...threeTargets, status: 'tp2' }, { time: 2, open: 116, high: 121, low: 115, close: 120, volume: 1 })).toMatchObject({ type: 'tp3' })
   })
+
+  it('closes a single-target position when its structural target is reached', () => {
+    const singleTarget: ManagedSignal = { ...signal, tp2Price: undefined, tp2RiskMultiple: undefined }
+    expect(evaluateSignalCandle(singleTarget, { time: 1, open: 101, high: 111, low: 100, close: 110, volume: 1 })).toEqual({ type: 'tp1', outcomeR: 2 })
+  })
 })
