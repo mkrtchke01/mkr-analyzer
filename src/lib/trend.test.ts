@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateBottomReversalPlan, calculateBreakoutRetestPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTopReversalPlan, calculateTradePlan, getOverallTrend, getSetupSignal, getTrendIndicator, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateBreakoutRetestPlan, calculateEma, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getSetupSignal, getTrendIndicator, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -47,20 +47,6 @@ const makeLevelBreakoutCandles = (): Candle[] => {
   return candles
 }
 
-const makeFalseBreakoutCandles = (): Candle[] => {
-  const candles: Candle[] = Array.from({ length: 32 }, (_, index) => ({ time: index * 300, open: 100, high: 101, low: 99, close: 100, volume: 100 }))
-  candles[20] = { time: 20 * 300, open: 100, high: 105, low: 99.5, close: 101, volume: 140 }
-  candles[31] = { time: 31 * 300, open: 105.2, high: 106, low: 99.5, close: 100, volume: 180 }
-  return candles
-}
-
-const makeBottomReversalCandles = (): Candle[] => {
-  const candles: Candle[] = Array.from({ length: 32 }, (_, index) => ({ time: index * 300, open: 100, high: 101, low: 99, close: 100, volume: 100 }))
-  candles[25] = { time: 25 * 300, open: 100, high: 101, low: 96, close: 98, volume: 130 }
-  candles[30] = { time: 30 * 300, open: 98, high: 99, low: 97, close: 97.5, volume: 110 }
-  candles[31] = { time: 31 * 300, open: 96.5, high: 101.5, low: 95.5, close: 100.5, volume: 180 }
-  return candles
-}
 
 const makeBreakoutRetestCandles = (): Candle[] => {
   const candles: Candle[] = Array.from({ length: 24 }, (_, index) => ({ time: index * 300, open: 100, high: 101, low: 99, close: 100, volume: 100 }))
@@ -188,21 +174,4 @@ describe('trend analysis', () => {
     expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
   })
 
-  it('creates a short plan after a false breakout above resistance', () => {
-    const plan = calculateFalseBreakoutPlan(makeFalseBreakoutCandles())
-
-    expect(plan).toMatchObject({ setupType: 'false-breakout', stop: { side: 'short' } })
-    expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
-    expect(plan!.takeProfits).toHaveLength(2)
-  })
-
-  it('detects reversals from a local bottom and top', () => {
-    const longPlan = calculateBottomReversalPlan(makeBottomReversalCandles())
-    const shortPlan = calculateTopReversalPlan(mirrorCandles(makeBottomReversalCandles()))
-
-    expect(longPlan).toMatchObject({ setupType: 'bottom-reversal', stop: { side: 'long' } })
-    expect(shortPlan).toMatchObject({ setupType: 'top-reversal', stop: { side: 'short' } })
-    expect(longPlan!.stop.price).toBeLessThan(longPlan!.stop.entry)
-    expect(shortPlan!.stop.price).toBeGreaterThan(shortPlan!.stop.entry)
-  })
 })

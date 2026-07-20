@@ -386,88 +386,6 @@ function isSwingAt(candles: Candle[], index: number, kind: 'high' | 'low') {
     : candle.low < candles[index - 1].low && candle.low < candles[index - 2].low && candle.low <= candles[index + 1].low && candle.low <= candles[index + 2].low
 }
 
-function createTwoTargetPlan(setupType: SetupType, side: 'long' | 'short', entry: number, stopPrice: number, note: string): TradePlan | null {
-  const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
-  if (risk <= 0) return null
-  const direction = side === 'long' ? 1 : -1
-
-  return {
-    setupType,
-    setupName: SETUP_META[setupType].name,
-    setupNote: note,
-    stop: {
-      side,
-      entry,
-      price: stopPrice,
-      distancePercent: (risk / entry) * 100,
-    },
-    takeProfits: [
-      { id: 'TP1', price: entry + direction * risk * 1.5, share: 50, riskMultiple: 1.5 },
-      { id: 'TP2', price: entry + direction * risk * 3, share: 50, riskMultiple: 3 },
-    ],
-  }
-}
-
-export function calculateFalseBreakoutPlan(candles: Candle[]): TradePlan | null {
-  if (candles.length < PERIOD + 5) return null
-  const atr = calculateAtr(candles)
-  if (!atr) return null
-
-  const current = candles.at(-1)!
-  const threshold = atr * 0.1
-  const buffer = atr * 0.25
-  for (let index = candles.length - 3; index >= Math.max(2, candles.length - 60); index -= 1) {
-    if (isSwingAt(candles, index, 'high')) {
-      const level = candles[index].high
-      const failedAbove = current.high > level + threshold && current.close < level && current.close < current.open
-      if (failedAbove) return createTwoTargetPlan('false-breakout', 'short', current.close, current.high + buffer, `Ложный пробой сопротивления ${level.toPrecision(6)}`)
-    }
-    if (isSwingAt(candles, index, 'low')) {
-      const level = candles[index].low
-      const failedBelow = current.low < level - threshold && current.close > level && current.close > current.open
-      if (failedBelow) return createTwoTargetPlan('false-breakout', 'long', current.close, current.low - buffer, `Ложный пробой поддержки ${level.toPrecision(6)}`)
-    }
-  }
-
-  return null
-}
-
-function calculateLocalExtremeReversal(candles: Candle[], side: 'long' | 'short'): TradePlan | null {
-  if (candles.length < PERIOD + 8) return null
-  const atr = calculateAtr(candles)
-  if (!atr) return null
-
-  const current = candles.at(-1)!
-  const previous = candles.at(-2)!
-  const recent = candles.slice(-21, -1)
-  const localExtreme = side === 'long'
-    ? Math.min(...recent.map((candle) => candle.low))
-    : Math.max(...recent.map((candle) => candle.high))
-  const range = current.high - current.low
-  if (range <= 0) return null
-
-  const touchesExtreme = side === 'long'
-    ? current.low <= localExtreme + atr * 0.15
-    : current.high >= localExtreme - atr * 0.15
-  const rejectionConfirmed = side === 'long'
-    ? current.close > current.open && current.close > previous.close && current.close >= current.low + range * 0.6
-    : current.close < current.open && current.close < previous.close && current.close <= current.high - range * 0.6
-  if (!touchesExtreme || !rejectionConfirmed) return null
-
-  const stopPrice = side === 'long' ? current.low - atr * 0.25 : current.high + atr * 0.25
-  const setupType = side === 'long' ? 'bottom-reversal' : 'top-reversal'
-  const label = side === 'long' ? 'дна' : 'вершины'
-  return createTwoTargetPlan(setupType, side, current.close, stopPrice, `Реакция от локального ${label} за последние 20 свечей`)
-}
-
-export function calculateBottomReversalPlan(candles: Candle[]): TradePlan | null {
-  return calculateLocalExtremeReversal(candles, 'long')
-}
-
-export function calculateTopReversalPlan(candles: Candle[]): TradePlan | null {
-  return calculateLocalExtremeReversal(candles, 'short')
-}
-
 export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTrend): TradePlan | null {
   if (trend === 'flat' || candles.length < PERIOD + 10) return null
 
@@ -543,9 +461,6 @@ export function calculateTradePlans(candles: Candle[], trend: OverallTrend): Tra
   return [
     calculateTrendReclaimPlan(candles, trend),
     calculateLevelBreakoutPlan(candles, trend),
-    calculateFalseBreakoutPlan(candles),
-    calculateBottomReversalPlan(candles),
-    calculateTopReversalPlan(candles),
     calculateBreakoutRetestPlan(candles, trend),
   ].filter((plan): plan is TradePlan => Boolean(plan))
 }
