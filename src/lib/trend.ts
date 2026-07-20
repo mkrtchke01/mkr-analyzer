@@ -2,12 +2,13 @@ import type { Candle, Timeframe } from './bybit.js'
 
 export type TrendDirection = 'bullish' | 'bearish' | 'flat'
 export type OverallTrend = 'strong-long' | 'strong-short' | 'flat'
-export type SetupType = 'trend-reclaim' | 'level-breakout'
+export type SetupType = 'trend-reclaim' | 'level-breakout' | 'breakout-retest'
 export type SetupSignal = { type: SetupType; side: 'long' | 'short' }
 
 export const SETUP_META: Record<SetupType, { shortName: string; name: string }> = {
   'trend-reclaim': { shortName: 'TR', name: 'Trend Reclaim' },
   'level-breakout': { shortName: 'LB', name: 'Level Breakout' },
+  'breakout-retest': { shortName: 'BR', name: 'Breakout Retest' },
 }
 
 export type TrendAnalysis = {
@@ -42,6 +43,12 @@ export type TradePlan = {
   setupNote: string
   stop: StopProposal
   takeProfits: TakeProfitLevel[]
+}
+
+export type ManualChartLevel = {
+  id: string
+  price: number
+  time: number
 }
 
 const FAST_EMA = 21
@@ -346,6 +353,85 @@ export function calculateLevelBreakoutPlan(candles: Candle[], trend: OverallTren
   }
 }
 
+function isSwingAt(candles: Candle[], index: number, kind: 'high' | 'low') {
+  if (index < 2 || index > candles.length - 3) return false
+  const candle = candles[index]
+  return kind === 'high'
+    ? candle.high > candles[index - 1].high && candle.high > candles[index - 2].high && candle.high >= candles[index + 1].high && candle.high >= candles[index + 2].high
+    : candle.low < candles[index - 1].low && candle.low < candles[index - 2].low && candle.low <= candles[index + 1].low && candle.low <= candles[index + 2].low
+}
+
+export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTrend): TradePlan | null {
+  if (trend === 'flat' || candles.length < PERIOD + 10) return null
+
+  const side = trend === 'strong-long' ? 'long' : 'short'
+  const swingKind = side === 'long' ? 'high' : 'low'
+  const atr = calculateAtr(candles)
+  if (!atr) return null
+
+  const lastIndex = candles.length - 1
+  const current = candles[lastIndex]
+  const previous = candles[lastIndex - 1]
+  const isBounce = side === 'long'
+    ? current.close > current.open && current.close > previous.close
+    : current.close < current.open && current.close < previous.close
+  if (!isBounce) return null
+
+  for (let index = candles.length - 8; index >= Math.max(2, candles.length - 80); index -= 1) {
+    if (!isSwingAt(candles, index, swingKind)) continue
+    const level = side === 'long' ? candles[index].high : candles[index].low
+    const breakoutIndex = candles.findIndex((candle, candleIndex) => candleIndex > index && (side === 'long'
+      ? candle.close > level + atr * 0.2
+      : candle.close < level - atr * 0.2))
+    if (breakoutIndex < 0 || breakoutIndex >= lastIndex) continue
+
+    let retestIndex = -1
+    for (let candleIndex = lastIndex; candleIndex > breakoutIndex; candleIndex -= 1) {
+      const candle = candles[candleIndex]
+      const isRetest = side === 'long'
+        ? candle.low <= level + atr * 0.45 && candle.low >= level - atr * 0.6 && candle.close >= level - atr * 0.1
+        : candle.high >= level - atr * 0.45 && candle.high <= level + atr * 0.6 && candle.close <= level + atr * 0.1
+      if (isRetest) {
+        retestIndex = candleIndex
+        break
+      }
+    }
+    if (retestIndex < lastIndex - 2) continue
+
+    const holdsAfterBreakout = candles.slice(breakoutIndex + 1).every((candle) => side === 'long'
+      ? candle.close >= level - atr * 0.6
+      : candle.close <= level + atr * 0.6)
+    if (!holdsAfterBreakout) continue
+
+    const retest = candles[retestIndex]
+    const buffer = atr * 0.25
+    const stopPrice = side === 'long' ? retest.low - buffer : retest.high + buffer
+    const entry = current.close
+    const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
+    if (risk <= 0) continue
+
+    const direction = side === 'long' ? 1 : -1
+    return {
+      setupType: 'breakout-retest',
+      setupName: SETUP_META['breakout-retest'].name,
+      setupNote: `Ретест пробитого уровня ${level.toPrecision(6)} · реакция от зоны`,
+      stop: {
+        side,
+        entry,
+        price: stopPrice,
+        distancePercent: (risk / entry) * 100,
+        distanceAtr: risk / atr,
+      },
+      takeProfits: [
+        { id: 'TP1', price: entry + direction * risk * 1.5, share: 50, riskMultiple: 1.5 },
+        { id: 'TP2', price: entry + direction * risk * 3, share: 50, riskMultiple: 3 },
+      ],
+    }
+  }
+
+  return null
+}
+
 export function calculateTradePlans(candles: Candle[], trend: OverallTrend): TradePlan[] {
-  return [calculateTrendReclaimPlan(candles, trend), calculateLevelBreakoutPlan(candles, trend)].filter((plan): plan is TradePlan => Boolean(plan))
+  return [calculateTrendReclaimPlan(candles, trend), calculateLevelBreakoutPlan(candles, trend), calculateBreakoutRetestPlan(candles, trend)].filter((plan): plan is TradePlan => Boolean(plan))
 }

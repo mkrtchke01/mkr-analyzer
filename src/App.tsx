@@ -4,7 +4,7 @@ import SignalHistory from './components/SignalHistory'
 import TrendPanel from './components/TrendPanel'
 import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
 import { getSavedSignals, type SavedSignal } from './lib/signals'
-import { analyzeTrend, calculateTradePlans, getOverallTrend, getSetupSignals, SETUP_META, type SetupSignal, type TradePlan, type TrendAnalysis } from './lib/trend'
+import { analyzeTrend, calculateTradePlans, getOverallTrend, getSetupSignals, SETUP_META, type ManualChartLevel, type SetupSignal, type TradePlan, type TrendAnalysis } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
   { symbol: 'BTCUSDT', price: 0, change: 0, turnover: 0 },
@@ -39,6 +39,8 @@ export default function App() {
   const [trendLoading, setTrendLoading] = useState(true)
   const [trendError, setTrendError] = useState(false)
   const [tradePlans, setTradePlans] = useState<TradePlan[]>([])
+  const [manualLevelsBySymbol, setManualLevelsBySymbol] = useState<Record<string, ManualChartLevel[]>>({})
+  const [manualLevelMode, setManualLevelMode] = useState(false)
   const [marketsReady, setMarketsReady] = useState(false)
   const [marketSetups, setMarketSetups] = useState<Record<string, SetupSignal[]>>({})
   const [setupScanning, setSetupScanning] = useState(false)
@@ -98,7 +100,7 @@ export default function App() {
     const loadTrendAnalyses = async () => {
       setTrendLoading(true)
       try {
-        const candles = await Promise.all(ANALYSIS_TIMEFRAMES.map((item) => getCandles(symbol, item, 300)))
+        const candles = await Promise.all(ANALYSIS_TIMEFRAMES.map((item) => getCandles(symbol, item, 1000)))
         if (!disposed) {
           const analyses = candles.map((items, index) => analyzeTrend(items, ANALYSIS_TIMEFRAMES[index]))
           setTrendAnalyses(analyses)
@@ -187,10 +189,26 @@ export default function App() {
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [historyOpen])
 
+  useEffect(() => setManualLevelMode(false), [symbol])
+
   const selectedMarket = markets.find((market) => market.symbol === symbol)
   const change = selectedMarket?.change ?? 0
   const handleStatusChange = useCallback((nextStatus: 'loading' | 'live' | 'offline') => setStatus(nextStatus), [])
   const handlePriceChange = useCallback((price: number) => setCurrentPrice(price), [])
+  const addManualLevel = useCallback((level: Omit<ManualChartLevel, 'id'>) => {
+    setManualLevelsBySymbol((previous) => ({
+      ...previous,
+      [symbol]: [...(previous[symbol] ?? []), { ...level, id: `${Date.now()}-${Math.random()}` }],
+    }))
+    setManualLevelMode(false)
+  }, [symbol])
+  const clearManualLevels = useCallback(() => {
+    setManualLevelsBySymbol((previous) => {
+      const { [symbol]: _, ...rest } = previous
+      return rest
+    })
+  }, [symbol])
+  const manualLevels = manualLevelsBySymbol[symbol] ?? []
 
   return (
     <main className="terminal-shell">
@@ -216,11 +234,17 @@ export default function App() {
                 <span className={change >= 0 ? 'positive' : 'negative'}>{change >= 0 ? '+' : ''}{change.toFixed(2)}%</span>
               </div>
             </div>
-            <div className={`connection ${status}`}>
-              <i /> {status === 'live' ? 'Поток данных' : status === 'loading' ? 'Загрузка' : 'Переподключение'}
+            <div className="chart-actions">
+              <button className={`chart-level-toggle ${manualLevelMode ? 'active' : ''}`} onClick={() => setManualLevelMode((active) => !active)} aria-pressed={manualLevelMode}>
+                {manualLevelMode ? 'Выберите цену' : 'Уровень'}
+              </button>
+              {manualLevels.length > 0 && <button className="chart-level-clear" onClick={clearManualLevels}>Очистить {manualLevels.length}</button>}
+              <div className={`connection ${status}`}>
+                <i /> {status === 'live' ? 'Поток данных' : status === 'loading' ? 'Загрузка' : 'Переподключение'}
+              </div>
             </div>
           </div>
-          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} tradePlans={tradePlans} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
+          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} tradePlans={tradePlans} manualLevels={manualLevels} manualLevelMode={manualLevelMode} onAddManualLevel={addManualLevel} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
           <footer className="chart-footer">
             <span>Свечи · {timeframe}</span>
             <span>Источник: Bybit public market data</span>
