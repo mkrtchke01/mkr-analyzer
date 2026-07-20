@@ -8,7 +8,7 @@ type TrendPanelProps = {
   error: boolean
   tradePlans: TradePlan[]
   marketInfo: MarketInfoSignal[]
-  onShowDivergence: (signal: MarketInfoSignal) => void
+  onShowMarketInfo: (signal: MarketInfoSignal) => void
 }
 
 const timeframeRole: Record<TrendAnalysis['timeframe'], string> = {
@@ -31,7 +31,7 @@ const overallText: Record<OverallTrend, string> = {
   flat: 'ФЛЕТ / НЕТ СЕТАПА',
 }
 
-export default function TrendPanel({ analyses, loading, error, tradePlans, marketInfo, onShowDivergence }: TrendPanelProps) {
+export default function TrendPanel({ analyses, loading, error, tradePlans, marketInfo, onShowMarketInfo }: TrendPanelProps) {
   const overall = getOverallTrend(analyses)
 
   return (
@@ -64,7 +64,7 @@ export default function TrendPanel({ analyses, loading, error, tradePlans, marke
         <section className="market-info" aria-label="Info">
           <div className="eyebrow">INFO</div>
           {marketInfo.length
-            ? <ul>{marketInfo.map((signal) => <li className={signal.side} key={`${signal.type}-${signal.timeframe}`}><span>{marketInfoText(signal)}</span>{signal.divergence && <button onClick={() => onShowDivergence(signal)}>Показать</button>}</li>)}</ul>
+            ? <ul>{marketInfo.map((signal) => <li className={signal.side} key={`${signal.type}-${signal.timeframe}`}><span>{marketInfoText(signal)}</span>{(signal.divergence || signal.level) && <button onClick={() => onShowMarketInfo(signal)}>Показать</button>}</li>)}</ul>
             : <p>Особых рыночных событий на 15m, 1h и 4h не обнаружено</p>}
         </section>
         {tradePlans.map((tradePlan) => <div className={`trade-plan ${tradePlan.stop.side}`} key={tradePlan.setupType}>

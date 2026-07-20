@@ -263,32 +263,45 @@ export default function App() {
       return rest
     })
   }, [symbol])
-  const showDivergence = useCallback((signal: MarketInfoSignal) => {
-    if (!signal.divergence) return
+  const showMarketInfo = useCallback((signal: MarketInfoSignal) => {
+    const focusTime = signal.divergence?.second.priceTime ?? signal.level?.eventTime
+    if (!focusTime) return
 
-    const { divergence } = signal
-    const id = `divergence-${signal.timeframe}-${divergence.first.priceTime}-${divergence.second.priceTime}`
-    setManualLevelsBySymbol((previous) => {
-      const current = previous[symbol] ?? []
-      if (current.some((level) => level.id === id)) return previous
-      return {
-        ...previous,
-        [symbol]: [...current, {
-          id,
-          time: divergence.first.priceTime,
-          price: divergence.first.price,
-          endTime: divergence.second.priceTime,
-          endPrice: divergence.second.price,
-        }],
-      }
-    })
-    setRsiDivergencesBySymbol((previous) => {
-      const current = previous[symbol] ?? []
-      if (current.some((item) => item.id === id)) return previous
-      return { ...previous, [symbol]: [...current, { id, ...divergence }] }
-    })
+    if (signal.divergence) {
+      const { divergence } = signal
+      const id = `divergence-${signal.timeframe}-${divergence.first.priceTime}-${divergence.second.priceTime}`
+      setManualLevelsBySymbol((previous) => {
+        const current = previous[symbol] ?? []
+        if (current.some((level) => level.id === id)) return previous
+        return {
+          ...previous,
+          [symbol]: [...current, {
+            id,
+            time: divergence.first.priceTime,
+            price: divergence.first.price,
+            endTime: divergence.second.priceTime,
+            endPrice: divergence.second.price,
+          }],
+        }
+      })
+      setRsiDivergencesBySymbol((previous) => {
+        const current = previous[symbol] ?? []
+        if (current.some((item) => item.id === id)) return previous
+        return { ...previous, [symbol]: [...current, { id, ...divergence }] }
+      })
+    }
+
+    if (signal.level) {
+      const { level } = signal
+      const id = `market-level-${signal.type}-${signal.timeframe}-${level.time}-${level.price}`
+      setManualLevelsBySymbol((previous) => {
+        const current = previous[symbol] ?? []
+        if (current.some((item) => item.id === id)) return previous
+        return { ...previous, [symbol]: [...current, { id, time: level.time, price: level.price, endTime: level.eventTime, endPrice: level.price }] }
+      })
+    }
     setTimeframe(signal.timeframe)
-    setChartFocusTime(divergence.second.priceTime)
+    setChartFocusTime(focusTime)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [symbol])
   const manualLevels = manualLevelsBySymbol[symbol] ?? []
@@ -339,7 +352,7 @@ export default function App() {
             <span>Источник: Bybit public market data</span>
           </footer>
         </section>
-        <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} tradePlans={fixedTradePlans} marketInfo={marketInfo} onShowDivergence={showDivergence} />
+        <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} tradePlans={fixedTradePlans} marketInfo={marketInfo} onShowMarketInfo={showMarketInfo} />
       </section>
 
       <aside className="markets-panel">

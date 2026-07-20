@@ -20,11 +20,21 @@ const breakoutCandles = () => {
 
 describe('market info signals', () => {
   it('reports a fresh breakout and a retest of the broken level', () => {
-    expect(getMarketInfo(breakoutCandles(), '15m')).toContainEqual({ type: 'breakout', side: 'bullish', timeframe: '15m' })
+    expect(getMarketInfo(breakoutCandles(), '15m')).toEqual(expect.arrayContaining([expect.objectContaining({
+      type: 'breakout',
+      side: 'bullish',
+      timeframe: '15m',
+      level: { time: 90, price: 110, eventTime: 97 },
+    })]))
 
     const retest = breakoutCandles()
     setCandle(retest, 98, 111, 112, 110.2, 111)
-    expect(getMarketInfo(retest, '15m')).toContainEqual({ type: 'retest', side: 'bullish', timeframe: '15m' })
+    expect(getMarketInfo(retest, '15m')).toEqual(expect.arrayContaining([expect.objectContaining({
+      type: 'retest',
+      side: 'bullish',
+      timeframe: '15m',
+      level: { time: 90, price: 110, eventTime: 98 },
+    })]))
   })
 
   it('reports consolidation directly below a prior resistance', () => {
@@ -34,7 +44,12 @@ describe('market info signals', () => {
     setCandle(candles, 92, 100, 101, 99, 100)
     for (let index = 94; index < 100; index += 1) setCandle(candles, index, 109.8, 110, 109.3, 109.8)
 
-    expect(getMarketInfo(candles, '1h')).toContainEqual({ type: 'consolidation', side: 'bullish', timeframe: '1h' })
+    expect(getMarketInfo(candles, '1h')).toEqual(expect.arrayContaining([expect.objectContaining({
+      type: 'consolidation',
+      side: 'bullish',
+      timeframe: '1h',
+      level: { time: 90, price: 110.5, eventTime: 99 },
+    })]))
   })
 
   it('reports a Fibonacci-sized correction after a strong impulse', () => {
