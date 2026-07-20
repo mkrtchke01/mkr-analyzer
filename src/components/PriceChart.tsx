@@ -276,6 +276,8 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
     let socket: WebSocket | undefined
     let disposed = false
     let retryId: number | undefined
+    let scaleFrame: number | undefined
+    let lockScaleFrame: number | undefined
     const series = seriesRef.current
     const chart = chartRef.current
     if (!series || !chart) return
@@ -296,7 +298,6 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       try {
         const candles = await getCandles(symbol, timeframe)
         if (disposed) return
-        resetPriceScaleForNewCandles(chart)
         series.setData(candles as unknown as CandlestickData<Time>[])
         candlesRef.current = candles
         const nextRsi = calculateRsi(candles)
@@ -305,7 +306,15 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
         setCandleCount(candles.length)
         if (focusTime) focusChartOnTime(chart, timeframe, focusTime)
         else fitChartHistory(chart)
-        enableInitialVerticalPanning(chart)
+        // Let Lightweight Charts recalculate only after the requested time range is visible.
+        // Freezing the scale before that calculation included distant candles and compressed the chart.
+        scaleFrame = window.requestAnimationFrame(() => {
+          if (disposed) return
+          resetPriceScaleForNewCandles(chart)
+          lockScaleFrame = window.requestAnimationFrame(() => {
+            if (!disposed) enableInitialVerticalPanning(chart)
+          })
+        })
         const latest = candles.at(-1)
         if (latest) onPriceChange(latest.close)
       } catch {
@@ -337,6 +346,8 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
     return () => {
       disposed = true
       if (retryId) window.clearTimeout(retryId)
+      if (scaleFrame) window.cancelAnimationFrame(scaleFrame)
+      if (lockScaleFrame) window.cancelAnimationFrame(lockScaleFrame)
       socket?.close()
     }
   }, [symbol, timeframe, focusTime, onPriceChange, onStatusChange])
