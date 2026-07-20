@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ColorType, CrosshairMode, createChart, LineStyle, type CandlestickData, type IChartApi, type IPriceLine, type ISeriesApi, type Time } from 'lightweight-charts'
 import { chartWebSocketUrl, getCandles, klineEventToCandle, timeframeToBybitInterval, type Candle, type Timeframe } from '../lib/bybit'
-import { calculateRsi, type RsiPoint } from '../lib/rsi'
+import { calculateRsi, calculateRsiSma, type RsiPoint } from '../lib/rsi'
 import { SETUP_META, type ManualChartLevel, type RiskRewardBox, type TradePlan } from '../lib/trend'
 import { ChartLevelsPrimitive } from './ChartLevels'
 import { createRiskRewardBox, getRiskRewardHandle, RiskRewardPrimitive } from './RiskReward'
@@ -72,6 +72,7 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
   const riskRewardPrimitiveRef = useRef<RiskRewardPrimitive | null>(null)
   const [drawingPreview, setDrawingPreview] = useState<{ price: number, time: number } | null>(null)
   const [rsiData, setRsiData] = useState<RsiPoint[]>([])
+  const [rsiAverage, setRsiAverage] = useState<RsiPoint[]>([])
   const [candleCount, setCandleCount] = useState(0)
   const [rsiVisibleRange, setRsiVisibleRange] = useState<{ from: number, to: number } | null>(null)
 
@@ -273,7 +274,9 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       series.update(candle as unknown as CandlestickData<Time>)
       const current = candlesRef.current
       candlesRef.current = current.at(-1)?.time === candle.time ? [...current.slice(0, -1), candle] : [...current, candle]
-      setRsiData(calculateRsi(candlesRef.current))
+      const nextRsi = calculateRsi(candlesRef.current)
+      setRsiData(nextRsi)
+      setRsiAverage(calculateRsiSma(nextRsi))
       setCandleCount(candlesRef.current.length)
       onPriceChange(candle.close)
     }
@@ -286,7 +289,9 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
         resetPriceScaleForNewCandles(chart)
         series.setData(candles as unknown as CandlestickData<Time>[])
         candlesRef.current = candles
-        setRsiData(calculateRsi(candles))
+        const nextRsi = calculateRsi(candles)
+        setRsiData(nextRsi)
+        setRsiAverage(calculateRsiSma(nextRsi))
         setCandleCount(candles.length)
         fitChartHistory(chart)
         enableInitialVerticalPanning(chart)
@@ -327,6 +332,6 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
 
   return <>
     <div className="chart-canvas" ref={containerRef} aria-label={`График ${symbol}`} />
-    <RsiPanel points={rsiData} candleCount={candleCount} visibleRange={rsiVisibleRange} />
+    <RsiPanel points={rsiData} averagePoints={rsiAverage} candleCount={candleCount} visibleRange={rsiVisibleRange} />
   </>
 }

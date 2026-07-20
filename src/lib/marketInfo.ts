@@ -13,7 +13,7 @@ type Swing = { index: number, price: number }
 type Side = MarketInfoSignal['side']
 
 const PIVOT_RADIUS = 2
-const RECENT_SIGNAL_CANDLES = 14
+const RECENT_SIGNAL_CANDLES = 40
 
 function isSwing(candles: Candle[], index: number, kind: 'high' | 'low'): boolean {
   if (index < PIVOT_RADIUS || index > candles.length - PIVOT_RADIUS - 1) return false
@@ -37,19 +37,25 @@ export function findRsiDivergence(candles: Candle[]): Exclude<MarketInfoType, 'b
   const atr = calculateAtr(candles)
   if (!atr || candles.length < 35) return undefined
   const rsi = calculateRsi(candles)
-  const rsiAt = (index: number) => rsi[index - 14]?.value
+  const rsiAt = (index: number, kind: 'high' | 'low') => {
+    const nearby = rsi.slice(Math.max(0, index - 14 - 2), index - 14 + 3).map((point) => point?.value).filter((value): value is number => value !== undefined)
+    if (!nearby.length) return undefined
+    return kind === 'low' ? Math.min(...nearby) : Math.max(...nearby)
+  }
 
   const compare = (kind: 'high' | 'low') => {
     const points = swings(candles, kind)
-    const last = points.at(-1)
-    const previous = points.at(-2)
-    if (!last || !previous || candles.length - 1 - last.index > RECENT_SIGNAL_CANDLES) return undefined
-    const currentRsi = rsiAt(last.index)
-    const previousRsi = rsiAt(previous.index)
-    if (currentRsi === undefined || previousRsi === undefined) return undefined
+    for (let index = points.length - 1; index >= 1; index -= 1) {
+      const last = points[index]
+      const previous = points[index - 1]
+      if (candles.length - 1 - last.index > RECENT_SIGNAL_CANDLES || last.index - previous.index > 80) continue
+      const currentRsi = rsiAt(last.index, kind)
+      const previousRsi = rsiAt(previous.index, kind)
+      if (currentRsi === undefined || previousRsi === undefined) continue
 
-    if (kind === 'low' && last.price < previous.price - atr * 0.15 && currentRsi > previousRsi + 4) return 'bullish-divergence' as const
-    if (kind === 'high' && last.price > previous.price + atr * 0.15 && currentRsi < previousRsi - 4) return 'bearish-divergence' as const
+      if (kind === 'low' && last.price < previous.price - atr * 0.15 && currentRsi > previousRsi + 3) return 'bullish-divergence' as const
+      if (kind === 'high' && last.price > previous.price + atr * 0.15 && currentRsi < previousRsi - 3) return 'bearish-divergence' as const
+    }
     return undefined
   }
 

@@ -27,6 +27,14 @@ export function calculateRsi(candles: Candle[], period = 14): RsiPoint[] {
   return points
 }
 
+export function calculateRsiSma(points: RsiPoint[], period = 14): RsiPoint[] {
+  if (period < 1 || points.length < period) return []
+  return points.slice(period - 1).map((point, index) => ({
+    time: point.time,
+    value: points.slice(index, index + period).reduce((sum, item) => sum + item.value, 0) / period,
+  }))
+}
+
 function rsiValue(averageGain: number, averageLoss: number): number {
   if (averageGain === 0 && averageLoss === 0) return 50
   if (averageLoss === 0) return 100
