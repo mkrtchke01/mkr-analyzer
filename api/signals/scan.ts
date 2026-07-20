@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { getCandles, getMarkets, type Candle, type Timeframe } from '../../src/lib/bybit.js'
 import { createSignalSnapshot } from '../../src/lib/signalSnapshot.js'
 import { evaluateSignalCandle, type ManagedSignal } from '../../src/lib/signalLifecycle.js'
-import { analyzeTrend, calculateTradePlans, getOverallTrend, type TradePlan, type TrendAnalysis } from '../../src/lib/trend.js'
+import { getMarketInfo } from '../../src/lib/marketInfo.js'
+import { analyzeTrend, calculateConsensusPlan, calculateTradePlans, getOverallTrend, type TradePlan, type TrendAnalysis } from '../../src/lib/trend.js'
 import { isAuthorizedCronRequest, supabaseRequest, uploadSnapshot } from '../_lib/supabase.js'
 
 const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
@@ -11,15 +12,17 @@ const MAX_CONCURRENCY = 5
 type StoredSignal = {
   id: string
   symbol: string
-  setup_type: 'trend-reclaim' | 'level-breakout' | 'breakout-retest'
+  setup_type: 'trend-reclaim' | 'level-breakout' | 'breakout-retest' | 'consensus'
   side: 'long' | 'short'
-  status: 'active' | 'tp1'
+  status: 'active' | 'tp1' | 'tp2'
   entry_price: string
   stop_price: string
   initial_stop_price: string
   tp1_price: string
   tp2_price: string
+  tp3_price: string | null
   tp1_risk_multiple: string
+  tp2_risk_multiple: string | null
   detected_candle_time: number
   last_checked_candle_time: number
   expires_at: string
@@ -69,7 +72,9 @@ async function monitorSignal(signal: StoredSignal) {
     initialStopPrice: Number(signal.initial_stop_price),
     tp1Price: Number(signal.tp1_price),
     tp2Price: Number(signal.tp2_price),
+    tp3Price: signal.tp3_price === null ? undefined : Number(signal.tp3_price),
     tp1RiskMultiple: Number(signal.tp1_risk_multiple),
+    tp2RiskMultiple: signal.tp2_risk_multiple === null ? Math.abs(Number(signal.tp2_price) - Number(signal.entry_price)) / Math.abs(Number(signal.entry_price) - Number(signal.initial_stop_price)) : Number(signal.tp2_risk_multiple),
   }
   const pendingCandles = candles.filter((candle) => candle.time > signal.last_checked_candle_time)
   let currentState = signalState
@@ -81,10 +86,11 @@ async function monitorSignal(signal: StoredSignal) {
       await patchSignal(signal.id, baseUpdate)
       continue
     }
-    if (outcome.type === 'tp1') {
-      await patchSignal(signal.id, { ...baseUpdate, status: 'tp1', stop_price: outcome.nextStopPrice, outcome_r: outcome.outcomeR })
-      await createEvent(signal.id, 'tp1', candle, { movedStopTo: outcome.nextStopPrice, outcomeR: outcome.outcomeR })
-      currentState = { ...currentState, status: 'tp1', stopPrice: outcome.nextStopPrice }
+    if (outcome.type === 'tp1' || (outcome.type === 'tp2' && outcome.nextStopPrice !== undefined)) {
+      const nextStatus = outcome.type
+      await patchSignal(signal.id, { ...baseUpdate, status: nextStatus, stop_price: outcome.nextStopPrice, outcome_r: outcome.outcomeR })
+      await createEvent(signal.id, nextStatus, candle, { movedStopTo: outcome.nextStopPrice, outcomeR: outcome.outcomeR })
+      currentState = { ...currentState, status: nextStatus, stopPrice: outcome.nextStopPrice }
       continue
     }
     const closedAt = new Date(candle.time * 1000).toISOString()
@@ -127,6 +133,8 @@ async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnaly
     tp1_price: plan.takeProfits[0].price,
     tp2_price: plan.takeProfits[1].price,
     tp1_risk_multiple: plan.takeProfits[0].riskMultiple,
+    tp2_risk_multiple: plan.takeProfits[1].riskMultiple,
+    tp3_price: plan.takeProfits[2]?.price ?? null,
     last_price: confirmationCandle.close,
     trend_snapshot: analyses,
     plan_snapshot: plan,
@@ -156,7 +164,11 @@ async function scanMarket(symbol: string) {
   const confirmed = multiTimeframeCandles.map(closedCandles)
   const analyses = confirmed.map((candles, index) => analyzeTrend(candles, ANALYSIS_TIMEFRAMES[index]))
   const entryCandles = confirmed[3]
-  const plans = calculateTradePlans(entryCandles, getOverallTrend(analyses))
+  const marketInfo = confirmed.slice(0, 3).flatMap((candles, index) => getMarketInfo(candles, ANALYSIS_TIMEFRAMES[index] as '4h' | '1h' | '15m'))
+  const plans = [
+    ...calculateTradePlans(entryCandles, getOverallTrend(analyses)),
+    calculateConsensusPlan(entryCandles, analyses, marketInfo, confirmed[1]),
+  ].filter((plan): plan is TradePlan => Boolean(plan))
   let created = 0
   for (const plan of plans) if (await persistPlan(symbol, plan, analyses, entryCandles)) created += 1
   return created
@@ -167,7 +179,8 @@ export default async function handler(request: any, response: any) {
   if (!isAuthorizedCronRequest(request.headers.authorization)) return response.status(401).json({ error: 'Unauthorized' })
 
   try {
-    const openSignals = await supabaseRequest<StoredSignal[]>('/rest/v1/mkr_signals?select=*&status=in.(active,tp1)')
+    const storedOpenSignals = await supabaseRequest<StoredSignal[]>('/rest/v1/mkr_signals?select=*&status=in.(active,tp1,tp2)')
+    const openSignals = storedOpenSignals.filter((signal) => signal.status !== 'tp2' || signal.tp3_price !== null)
     let monitored = 0
     await runWithConcurrency(openSignals, async (signal) => {
       try {

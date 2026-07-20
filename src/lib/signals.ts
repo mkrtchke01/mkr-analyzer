@@ -1,6 +1,6 @@
 export type SignalState = 'open' | 'closed'
-export type SignalStatus = 'active' | 'tp1' | 'tp2' | 'stop' | 'expired' | 'ambiguous'
-export type SavedSetupType = 'trend-reclaim' | 'level-breakout' | 'breakout-retest'
+export type SignalStatus = 'active' | 'tp1' | 'tp2' | 'tp3' | 'stop' | 'expired' | 'ambiguous'
+export type SavedSetupType = 'trend-reclaim' | 'level-breakout' | 'breakout-retest' | 'consensus'
 export type SavedSignal = {
   id: string
   symbol: string
@@ -14,6 +14,7 @@ export type SavedSignal = {
   initialStopPrice: number
   tp1Price: number
   tp2Price: number
+  takeProfits?: TradePlan['takeProfits']
   lastPrice: number
   outcomeR: number | null
   snapshotUrl: string | null
@@ -34,7 +35,7 @@ export function tradePlanFromSavedSignal(signal: SavedSignal): TradePlan {
       distanceAtr: 0,
       reason: 'Зафиксированный стоп',
     },
-    takeProfits: [
+    takeProfits: signal.takeProfits ?? [
       { id: 'TP1', price: signal.tp1Price, share: 50, riskMultiple: initialRisk ? Math.abs(signal.tp1Price - signal.entryPrice) / initialRisk : 1.5 },
       { id: 'TP2', price: signal.tp2Price, share: 50, riskMultiple },
     ],

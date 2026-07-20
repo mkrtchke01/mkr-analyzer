@@ -1,14 +1,16 @@
 import type { Candle, Timeframe } from './bybit.js'
+import type { MarketInfoSignal } from './marketInfo.js'
 
 export type TrendDirection = 'bullish' | 'bearish' | 'flat'
 export type OverallTrend = 'strong-long' | 'strong-short' | 'flat'
-export type SetupType = 'trend-reclaim' | 'level-breakout' | 'breakout-retest'
+export type SetupType = 'trend-reclaim' | 'level-breakout' | 'breakout-retest' | 'consensus'
 export type SetupSignal = { type: SetupType; side: 'long' | 'short' }
 
 export const SETUP_META: Record<SetupType, { shortName: string; name: string }> = {
   'trend-reclaim': { shortName: 'TR', name: 'Trend Reclaim' },
   'level-breakout': { shortName: 'LB', name: 'Level Breakout' },
   'breakout-retest': { shortName: 'BR', name: 'Breakout Retest' },
+  consensus: { shortName: 'CS', name: 'Directional Consensus' },
 }
 
 export type TrendAnalysis = {
@@ -31,7 +33,7 @@ export type StopProposal = {
 }
 
 export type TakeProfitLevel = {
-  id: 'TP1' | 'TP2'
+  id: 'TP1' | 'TP2' | 'TP3'
   price: number
   share: number
   riskMultiple: number
@@ -464,6 +466,73 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
   }
 
   return null
+}
+
+function consensusDirection(analyses: TrendAnalysis[], marketInfo: MarketInfoSignal[]): { side: 'long' | 'short', confirmations: number } | undefined {
+  const votes = { long: 0, short: 0 }
+  analyses.forEach((analysis) => {
+    if (analysis.direction === 'bullish' && analysis.strength >= 20) votes.long += 1
+    if (analysis.direction === 'bearish' && analysis.strength >= 20) votes.short += 1
+  })
+  marketInfo.forEach((signal) => { votes[signal.side === 'bullish' ? 'long' : 'short'] += 1 })
+  const side = votes.long > votes.short ? 'long' : votes.short > votes.long ? 'short' : undefined
+  if (!side || votes[side] < 4 || votes[side] - votes[side === 'long' ? 'short' : 'long'] < 2) return undefined
+  return { side, confirmations: votes[side] }
+}
+
+function significantHourlyTargets(candles: Candle[], side: 'long' | 'short', minimumTarget: number): number[] {
+  const atr = calculateAtr(candles)
+  if (!atr) return []
+  const kind = side === 'long' ? 'high' : 'low'
+  const candidates: Array<{ price: number, score: number }> = []
+  for (let index = Math.max(2, candles.length - 100); index < candles.length - 2; index += 1) {
+    if (!isSwingAt(candles, index, kind)) continue
+    const price = kind === 'high' ? candles[index].high : candles[index].low
+    const isBeyondTarget = side === 'long' ? price > minimumTarget + atr * 0.15 : price < minimumTarget - atr * 0.15
+    if (!isBeyondTarget) continue
+    const after = candles.slice(index + 1)
+    const reaction = kind === 'high'
+      ? price - Math.min(...after.map((candle) => candle.low))
+      : Math.max(...after.map((candle) => candle.high)) - price
+    if (reaction < atr * 1.5) continue
+    candidates.push({ price, score: reaction / atr })
+  }
+  return candidates
+    .sort((left, right) => (side === 'long' ? left.price - right.price : right.price - left.price) || right.score - left.score)
+    .filter((candidate, index, all) => index === 0 || Math.abs(candidate.price - all[index - 1].price) > atr * 0.5)
+    .slice(0, 2)
+    .map((candidate) => candidate.price)
+}
+
+export function calculateConsensusPlan(entryCandles: Candle[], analyses: TrendAnalysis[], marketInfo: MarketInfoSignal[], hourlyCandles: Candle[]): TradePlan | null {
+  const consensus = consensusDirection(analyses, marketInfo)
+  if (!consensus || entryCandles.length < PERIOD + 3) return null
+
+  const entry = entryCandles.at(-1)!.close
+  const atr = calculateAtr(entryCandles)
+  const pivot = findLastSwing(entryCandles, consensus.side === 'long' ? 'low' : 'high')
+  if (!atr || !pivot) return null
+  const stopPrice = consensus.side === 'long' ? pivot.price - atr * 0.25 : pivot.price + atr * 0.25
+  const risk = consensus.side === 'long' ? entry - stopPrice : stopPrice - entry
+  if (risk <= 0) return null
+
+  const direction = consensus.side === 'long' ? 1 : -1
+  const tp1 = entry + direction * risk * 3
+  const hourlyTargets = significantHourlyTargets(hourlyCandles, consensus.side, tp1)
+  if (!hourlyTargets.length) return null
+  const takeProfits: TakeProfitLevel[] = [
+    { id: 'TP1', price: tp1, share: hourlyTargets.length > 1 ? 34 : 50, riskMultiple: 3 },
+    { id: 'TP2', price: hourlyTargets[0], share: hourlyTargets.length > 1 ? 33 : 50, riskMultiple: Math.abs(hourlyTargets[0] - entry) / risk },
+  ]
+  if (hourlyTargets[1] !== undefined) takeProfits.push({ id: 'TP3', price: hourlyTargets[1], share: 33, riskMultiple: Math.abs(hourlyTargets[1] - entry) / risk })
+
+  return {
+    setupType: 'consensus',
+    setupName: SETUP_META.consensus.name,
+    setupNote: `${consensus.confirmations} подтверждений направления · стоп за локальным ${consensus.side === 'long' ? 'лоем' : 'хаем'} 5m`,
+    stop: { side: consensus.side, entry, price: stopPrice, distancePercent: risk / entry * 100, distanceAtr: risk / atr },
+    takeProfits,
+  }
 }
 
 export function calculateTradePlans(candles: Candle[], trend: OverallTrend): TradePlan[] {

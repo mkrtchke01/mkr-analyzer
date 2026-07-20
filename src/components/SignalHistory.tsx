@@ -13,6 +13,7 @@ const statusText: Record<SavedSignal['status'], string> = {
   active: 'АКТИВЕН',
   tp1: 'TP1 · Б/У',
   tp2: 'TP2',
+  tp3: 'TP3',
   stop: 'STOP',
   expired: 'ИСТЁК',
   ambiguous: 'НЕОДНОЗНАЧНО',
