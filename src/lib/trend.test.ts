@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -85,6 +85,24 @@ const makeBreakoutRetestCandles = (): Candle[] => {
   set(21, 106.8, 107, 104.8, 105.1)
   set(22, 105.1, 105.8, 104.9, 105.2)
   set(23, 105.2, 106.4, 105, 106)
+  return candles
+}
+
+const makeFalseBreakoutCandles = (): Candle[] => {
+  const candles: Candle[] = Array.from({ length: 32 }, (_, index) => ({ time: 40000 + index * 300, open: 120, high: 120.5, low: 119.5, close: 120, volume: 100 }))
+  const set = (index: number, open: number, high: number, low: number, close: number) => { candles[index] = { time: 40000 + index * 300, open, high, low, close, volume: 150 } }
+
+  // Nearest 5m swing low is a valid first target for the short after the failed resistance breakout.
+  set(22, 119.5, 120, 119, 119.3)
+  set(23, 118, 118.5, 116, 117)
+  set(24, 117, 117.8, 117.2, 117.5)
+  set(25, 117.5, 118.5, 117.6, 118)
+  set(27, 120.4, 120.8, 120, 120.6)
+  // The wick sweeps the 1h resistance at 121, but the body closes back below it.
+  set(28, 120.6, 121.4, 120.2, 120.7)
+  set(29, 120.7, 120.8, 119.8, 120)
+  set(30, 120, 120.1, 119.5, 119.7)
+  set(31, 119.7, 119.8, 119.2, 119.5)
   return candles
 }
 
@@ -269,6 +287,25 @@ describe('trend analysis', () => {
     expect(plan!.takeProfits[1]).toMatchObject({ id: 'TP2', share: 50 })
     expect(plan!.takeProfits[1].price).toBeGreaterThan(plan!.takeProfits[0].price)
     expect(risk).toBeGreaterThan(0)
+  })
+
+  it('builds a short false-breakout plan after a 1h resistance sweep and 5m rejection', () => {
+    const plan = calculateFalseBreakoutPlan(makeFalseBreakoutCandles(), 'short', { hourlyCandles: makeHourlyBreakoutRange() })
+
+    expect(plan).toMatchObject({ setupType: 'false-breakout', stop: { side: 'short' } })
+    expect(plan!.setupNote).toContain('Ложный пробой 1h уровня')
+    expect(plan!.setupNote).toContain('5m реакция 3 свечи')
+    expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
+    expect(plan!.stop.distanceAtr).toBeLessThanOrEqual(2.5)
+    expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.5)
+  })
+
+  it('mirrors the false-breakout plan for a sweep below 1h support', () => {
+    const plan = calculateFalseBreakoutPlan(mirrorCandles(makeFalseBreakoutCandles()), 'long', { hourlyCandles: mirrorCandles(makeHourlyBreakoutRange()) })
+
+    expect(plan).toMatchObject({ setupType: 'false-breakout', stop: { side: 'long' } })
+    expect(plan!.stop.price).toBeLessThan(plan!.stop.entry)
+    expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.5)
   })
 
   it('mirrors the level-breakout plan for a short below support', () => {
