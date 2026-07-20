@@ -286,6 +286,10 @@ export type TrendReclaimContext = {
   hourlyCandles: Candle[]
 }
 
+export type LevelBreakoutContext = {
+  hourlyCandles: Candle[]
+}
+
 type HourlyPullback = { side: 'long' | 'short', retracement: number }
 
 function findHourlyPullback(candles: Candle[], side: 'long' | 'short'): HourlyPullback | undefined {
@@ -377,57 +381,135 @@ export function calculateTrendReclaimPlan(candles: Candle[], context: TrendRecla
   }
 }
 
-export function calculateLevelBreakoutPlan(candles: Candle[], trend: OverallTrend): TradePlan | null {
-  if (trend === 'flat' || candles.length < PERIOD + 5) return null
-
-  const side = trend === 'strong-long' ? 'long' : 'short'
-  const atr = calculateAtr(candles)
-  if (!atr) return null
-
-  const level = findLastSwing(candles, side === 'long' ? 'high' : 'low')
-  if (!level) return null
-
-  const entryCandle = candles.at(-1)!
-  const previous = candles.at(-2)!
-  const entry = entryCandle.close
-  const threshold = atr * 0.1
-  const brokeNow = side === 'long'
-    ? entry > level.price + threshold && previous.close <= level.price + threshold && entryCandle.close > entryCandle.open
-    : entry < level.price - threshold && previous.close >= level.price - threshold && entryCandle.close < entryCandle.open
-  if (!brokeNow) return null
-
-  const buffer = atr * 0.25
-  const stopPrice = side === 'long'
-    ? Math.min(level.price, entryCandle.low) - buffer
-    : Math.max(level.price, entryCandle.high) + buffer
-  const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
-  if (risk <= 0) return null
-
-  const direction = side === 'long' ? 1 : -1
-  return {
-    setupType: 'level-breakout',
-    setupName: SETUP_META['level-breakout'].name,
-    setupNote: `Закрытый пробой уровня ${level.price.toPrecision(6)}`,
-    stop: {
-      side,
-      entry,
-      price: stopPrice,
-      distancePercent: (risk / entry) * 100,
-      distanceAtr: risk / atr,
-    },
-    takeProfits: [
-      { id: 'TP1', price: entry + direction * risk * 1.5, share: 50, riskMultiple: 1.5 },
-      { id: 'TP2', price: entry + direction * risk * 3, share: 50, riskMultiple: 3 },
-    ],
-  }
-}
-
 function isSwingAt(candles: Candle[], index: number, kind: 'high' | 'low') {
   if (index < 2 || index > candles.length - 3) return false
   const candle = candles[index]
   return kind === 'high'
     ? candle.high > candles[index - 1].high && candle.high > candles[index - 2].high && candle.high >= candles[index + 1].high && candle.high >= candles[index + 2].high
     : candle.low < candles[index - 1].low && candle.low < candles[index - 2].low && candle.low <= candles[index + 1].low && candle.low <= candles[index + 2].low
+}
+
+type HourlyRange = { level: number; height: number; touches: number }
+
+function hasMeaningfulReaction(candles: Candle[], index: number, kind: 'high' | 'low', atr: number, until = candles.length): boolean {
+  const after = candles.slice(index + 1, until)
+  if (!after.length) return false
+  const pivot = kind === 'high' ? candles[index].high : candles[index].low
+  const reaction = kind === 'high'
+    ? pivot - Math.min(...after.map((candle) => candle.low))
+    : Math.max(...after.map((candle) => candle.high)) - pivot
+  return reaction >= atr
+}
+
+function findHourlyRangeBeforeBreakout(candles: Candle[], side: 'long' | 'short'): HourlyRange | undefined {
+  const atr = calculateAtr(candles)
+  if (!atr || candles.length < 20) return undefined
+
+  const lastIndex = candles.length - 1
+  const levelKind = side === 'long' ? 'high' : 'low'
+  let best: (HourlyRange & { score: number }) | undefined
+
+  for (let size = 5; size <= 12; size += 1) {
+    const start = lastIndex - size + 1
+    if (start < 5) continue
+    const range = candles.slice(start)
+    const rangeHigh = Math.max(...range.map((candle) => candle.high))
+    const rangeLow = Math.min(...range.map((candle) => candle.low))
+    const height = rangeHigh - rangeLow
+    if (height < atr * 0.5 || height > atr * 3.5) continue
+
+    for (let index = start - 3; index >= Math.max(2, start - 100); index -= 1) {
+      if (!isSwingAt(candles, index, levelKind) || !hasMeaningfulReaction(candles, index, levelKind, atr, start)) continue
+      const level = levelKind === 'high' ? candles[index].high : candles[index].low
+      const boundary = side === 'long' ? rangeHigh : rangeLow
+      if (Math.abs(boundary - level) > atr * 0.35) continue
+
+      const touches = range.filter((candle) => side === 'long'
+        ? candle.high >= level - atr * 0.35 && candle.close <= level + atr * 0.2
+        : candle.low <= level + atr * 0.35 && candle.close >= level - atr * 0.2).length
+      if (touches < 2) continue
+
+      const score = touches * 10 + size
+      if (!best || score > best.score) best = { level, height, touches, score }
+      break
+    }
+  }
+
+  return best
+}
+
+function findHourlyTargets(candles: Candle[], side: 'long' | 'short', entry: number): number[] {
+  const atr = calculateAtr(candles)
+  if (!atr) return []
+  const kind = side === 'long' ? 'high' : 'low'
+  const targets: number[] = []
+
+  for (let index = candles.length - 3; index >= Math.max(2, candles.length - 100); index -= 1) {
+    if (!isSwingAt(candles, index, kind) || !hasMeaningfulReaction(candles, index, kind, atr)) continue
+    const price = kind === 'high' ? candles[index].high : candles[index].low
+    const isAhead = side === 'long' ? price > entry + atr * 0.1 : price < entry - atr * 0.1
+    if (isAhead && !targets.some((target) => Math.abs(target - price) < atr * 0.2)) targets.push(price)
+  }
+
+  return targets.sort((first, second) => side === 'long' ? first - second : second - first)
+}
+
+export function calculateLevelBreakoutPlan(candles: Candle[], trend: OverallTrend, context?: LevelBreakoutContext): TradePlan | null {
+  if (trend === 'flat' || candles.length < PERIOD + 5 || !context) return null
+
+  const side = trend === 'strong-long' ? 'long' : 'short'
+  const atr = calculateAtr(candles)
+  const hourlyRange = findHourlyRangeBeforeBreakout(context.hourlyCandles, side)
+  if (!atr || !hourlyRange) return null
+
+  const entryCandle = candles.at(-1)!
+  const previous = candles.at(-2)!
+  const entry = entryCandle.close
+  const threshold = atr * 0.2
+  const brokeNow = side === 'long'
+    ? entry > hourlyRange.level + threshold && previous.close <= hourlyRange.level + threshold && entryCandle.close > entryCandle.open
+    : entry < hourlyRange.level - threshold && previous.close >= hourlyRange.level - threshold && entryCandle.close < entryCandle.open
+  if (!brokeNow) return null
+
+  const localStop = findLastSwing(candles, side === 'long' ? 'low' : 'high')
+  if (!localStop) return null
+  const stopPrice = side === 'long' ? localStop.price - atr * 0.25 : localStop.price + atr * 0.25
+  const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
+  if (risk <= 0) return null
+  const stop: StopProposal = {
+    side,
+    entry,
+    price: stopPrice,
+    distancePercent: (risk / entry) * 100,
+    distanceAtr: risk / atr,
+  }
+
+  const direction = side === 'long' ? 1 : -1
+  const measuredTarget = hourlyRange.level + direction * hourlyRange.height
+  const candidates = [measuredTarget, ...findHourlyTargets(context.hourlyCandles, side, entry)]
+    .filter((price, index, prices) => (side === 'long' ? price > entry : price < entry) && prices.findIndex((candidate) => Math.abs(candidate - price) < atr * 0.2) === index)
+    .sort((first, second) => side === 'long' ? first - second : second - first)
+  if (candidates.length < 2) return null
+
+  const firstReward = side === 'long' ? candidates[0] - entry : entry - candidates[0]
+  if (firstReward < risk * 1.5) return null
+
+  const selected = candidates.slice(0, 3)
+  const shares = selected.length === 3 ? [40, 35, 25] : [50, 50]
+  const takeProfits = selected.map((price, index) => ({
+    id: `TP${index + 1}` as TakeProfitLevel['id'],
+    price,
+    share: shares[index],
+    riskMultiple: (side === 'long' ? price - entry : entry - price) / risk,
+  }))
+
+  return {
+    setupType: 'level-breakout',
+    setupName: SETUP_META['level-breakout'].name,
+    setupNote: `Пробой 1h уровня ${hourlyRange.level.toPrecision(6)} · наторговка ${hourlyRange.touches} касания · диапазон ${hourlyRange.height.toPrecision(4)}`,
+    stop,
+    takeProfits,
+  }
 }
 
 export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTrend): TradePlan | null {
@@ -504,7 +586,7 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
 export function calculateTradePlans(candles: Candle[], trend: OverallTrend, trendReclaimContext?: TrendReclaimContext): TradePlan[] {
   return [
     trendReclaimContext ? calculateTrendReclaimPlan(candles, trendReclaimContext) : null,
-    calculateLevelBreakoutPlan(candles, trend),
+    calculateLevelBreakoutPlan(candles, trend, trendReclaimContext),
     calculateBreakoutRetestPlan(candles, trend),
   ].filter((plan): plan is TradePlan => Boolean(plan))
 }

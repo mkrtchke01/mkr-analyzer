@@ -38,12 +38,39 @@ const makeLevelBreakoutCandles = (): Candle[] => {
   set(91, 120, 120.4, 119.7, 120.1, 110)
   set(92, 120.1, 120.3, 119.8, 120, 110)
   set(93, 120, 120.2, 119.9, 120.05, 110)
-  set(94, 120.05, 120.25, 119.9, 120.1, 110)
-  set(95, 120.1, 120.55, 120, 120.35)
-  set(96, 120.35, 120.65, 120.1, 120.45)
-  set(97, 120.45, 120.7, 120.2, 120.5)
-  set(98, 120.5, 120.75, 120.25, 120.55)
+  set(94, 120.3, 121, 120.6, 120.8, 110)
+  set(95, 120.8, 121.1, 120.5, 120.7)
+  set(96, 120.7, 121, 119.9, 120.4)
+  set(97, 120.4, 120.9, 120.3, 120.5)
+  set(98, 120.5, 120.95, 120.25, 120.55)
   set(99, 120.55, 121.8, 120.3, 121.6)
+  return candles
+}
+
+const makeHourlyBreakoutRange = (): Candle[] => {
+  const candles: Candle[] = Array.from({ length: 100 }, (_, index) => ({ time: index * 3600, open: 118, high: 119, low: 117, close: 118, volume: 100 }))
+  const set = (index: number, open: number, high: number, low: number, close: number) => { candles[index] = { time: index * 3600, open, high, low, close, volume: 130 } }
+
+  // Earlier 1h resistance, which becomes the second objective after the measured move.
+  set(48, 124, 125, 123, 124)
+  set(49, 124, 126, 123.5, 125)
+  set(50, 125, 127, 124, 125)
+  set(51, 125, 125.5, 122, 123)
+
+  // Significant level at 121: after it price had a 1 ATR reaction, then compressed below it.
+  set(68, 119, 120, 118, 119)
+  set(69, 119, 120.4, 118, 119.5)
+  set(70, 119.5, 121, 119, 120)
+  set(71, 120, 120.5, 118, 118.5)
+  set(72, 118.5, 119, 117, 117.5)
+  set(73, 117.5, 118.5, 116.8, 117.5)
+  set(74, 117.5, 119, 117, 118.5)
+
+  for (let index = 88; index < 100; index += 1) {
+    const high = index % 2 === 0 ? 120.8 : 120.7
+    const low = index % 3 === 0 ? 116 : 117.2
+    set(index, 119.5, high, low, 120.1)
+  }
   return candles
 }
 
@@ -165,24 +192,31 @@ describe('trend analysis', () => {
   })
 
   it('builds a level-breakout plan after a closed breakout of resistance', () => {
-    const plan = calculateLevelBreakoutPlan(makeLevelBreakoutCandles(), 'strong-long')
+    const plan = calculateLevelBreakoutPlan(makeLevelBreakoutCandles(), 'strong-long', { hourlyCandles: makeHourlyBreakoutRange() })
     const risk = plan!.stop.entry - plan!.stop.price!
 
     expect(plan).toMatchObject({ setupType: 'level-breakout', setupName: 'Пробой уровня' })
-    expect(plan!.takeProfits).toMatchObject([
-      { id: 'TP1', share: 50, riskMultiple: 1.5, price: plan!.stop.entry + risk * 1.5 },
-      { id: 'TP2', share: 50, riskMultiple: 3, price: plan!.stop.entry + risk * 3 },
-    ])
-    expect(plan!.stop.price).toBeLessThan(121)
+    expect(plan!.setupNote).toContain('Пробой 1h уровня')
+    expect(plan!.stop.price).toBeLessThan(plan!.stop.entry)
+    expect(plan!.takeProfits).toHaveLength(2)
+    expect(plan!.takeProfits[0]).toMatchObject({ id: 'TP1', share: 50 })
+    expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.5)
+    expect(plan!.takeProfits[1]).toMatchObject({ id: 'TP2', share: 50 })
+    expect(plan!.takeProfits[1].price).toBeGreaterThan(plan!.takeProfits[0].price)
+    expect(risk).toBeGreaterThan(0)
   })
 
   it('mirrors the level-breakout plan for a short below support', () => {
-    const plan = calculateLevelBreakoutPlan(mirrorCandles(makeLevelBreakoutCandles()), 'strong-short')
-    const risk = plan!.stop.price! - plan!.stop.entry
+    const plan = calculateLevelBreakoutPlan(mirrorCandles(makeLevelBreakoutCandles()), 'strong-short', { hourlyCandles: mirrorCandles(makeHourlyBreakoutRange()) })
 
     expect(plan).toMatchObject({ setupType: 'level-breakout', stop: { side: 'short' } })
     expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
-    expect(plan!.takeProfits[0]).toMatchObject({ riskMultiple: 1.5, price: plan!.stop.entry - risk * 1.5 })
+    expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.5)
+    expect(plan!.takeProfits[1].price).toBeLessThan(plan!.takeProfits[0].price)
+  })
+
+  it('does not create a level-breakout plan without a 1h range context', () => {
+    expect(calculateLevelBreakoutPlan(makeLevelBreakoutCandles(), 'strong-long')).toBeNull()
   })
 
   it('builds a breakout-retest plan after a bullish reaction from the broken resistance', () => {
