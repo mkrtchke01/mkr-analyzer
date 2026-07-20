@@ -12,6 +12,8 @@ export type Market = {
   price: number
   change: number
   turnover: number
+  tickSize?: number
+  pricePrecision?: number
 }
 
 export const TIMEFRAMES = {
@@ -33,6 +35,13 @@ type KlineResponse = {
 
 type TickerResponse = {
   result?: { list?: Array<Record<string, string>> }
+}
+
+type InstrumentsResponse = {
+  result?: {
+    list?: Array<{ symbol: string, priceFilter?: { tickSize?: string } }>
+    nextPageCursor?: string
+  }
 }
 
 const apiBase = 'https://api.bybit.com/v5/market'
@@ -63,7 +72,25 @@ export function klineEventToCandle(event: Record<string, string | number>): Cand
   }
 }
 
-export function formatPrice(value: number): string {
+export function pricePrecisionFromTickSize(tickSize: string | number | undefined): number | undefined {
+  if (tickSize === undefined || tickSize === '') return undefined
+  const normalized = String(tickSize).toLowerCase()
+  const exponentMatch = normalized.match(/^([\d.]+)e-(\d+)$/)
+  if (exponentMatch) {
+    const coefficientDecimals = (exponentMatch[1].split('.')[1] ?? '').length
+    return Number(exponentMatch[2]) + coefficientDecimals
+  }
+  const decimalPart = normalized.split('.')[1]
+  return decimalPart?.replace(/0+$/, '').length ?? 0
+}
+
+export function formatPrice(value: number, pricePrecision?: number): string {
+  if (pricePrecision !== undefined) {
+    return value.toLocaleString('en-US', {
+      minimumFractionDigits: pricePrecision,
+      maximumFractionDigits: pricePrecision,
+    })
+  }
   if (value >= 1000) return value.toLocaleString('en-US', { maximumFractionDigits: 2 })
   if (value >= 1) return value.toLocaleString('en-US', { maximumFractionDigits: 4 })
   return value.toLocaleString('en-US', { maximumFractionDigits: 8 })
@@ -103,9 +130,21 @@ export function getNextMarketSymbol(markets: Market[], currentSymbol: string): s
 }
 
 export async function getMarkets(): Promise<Market[]> {
-  const response = await fetch(`${apiBase}/tickers?category=linear`)
-  if (!response.ok) throw new Error(`Не удалось загрузить рынки Bybit (HTTP ${response.status})`)
-  const payload = (await response.json()) as TickerResponse
+  const [tickerResponse, instrumentsResponse] = await Promise.all([
+    fetch(`${apiBase}/tickers?category=linear`),
+    fetch(`${apiBase}/instruments-info?category=linear&limit=1000`),
+  ])
+  if (!tickerResponse.ok) throw new Error(`Не удалось загрузить рынки Bybit (HTTP ${tickerResponse.status})`)
+  if (!instrumentsResponse.ok) throw new Error(`Не удалось загрузить параметры инструментов Bybit (HTTP ${instrumentsResponse.status})`)
+  const payload = (await tickerResponse.json()) as TickerResponse
+  const instrumentsPayload = (await instrumentsResponse.json()) as InstrumentsResponse
+  const priceFormats = new Map((instrumentsPayload.result?.list ?? []).map((item) => {
+    const tickSize = item.priceFilter?.tickSize
+    return [item.symbol, {
+      tickSize: tickSize === undefined ? undefined : toNumber(tickSize),
+      pricePrecision: pricePrecisionFromTickSize(tickSize),
+    }]
+  }))
 
   const markets = (payload.result?.list ?? [])
     .filter((item) => item.symbol.endsWith('USDT') && Number(item.turnover24h) > 0)
@@ -114,6 +153,7 @@ export async function getMarkets(): Promise<Market[]> {
       price: toNumber(item.lastPrice),
       change: toNumber(item.price24hPcnt) * 100,
       turnover: toNumber(item.turnover24h),
+      ...priceFormats.get(item.symbol),
     }))
 
   return filterMarkets(markets)

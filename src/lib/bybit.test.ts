@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { filterMarketList, filterMarkets, formatPrice, getCandles, getMarkets, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, sortMarketsByTrend, timeframeToBybitInterval } from './bybit'
+import { filterMarketList, filterMarkets, formatPrice, getCandles, getMarkets, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, pricePrecisionFromTickSize, sortMarketsByTrend, timeframeToBybitInterval } from './bybit'
 
 describe('Bybit market data conversion', () => {
   it('converts reverse-ordered REST klines into chronological candles', () => {
@@ -73,6 +73,15 @@ describe('Bybit market data conversion', () => {
     expect(filterMarketList(markets, '', setupSymbols, true).map((market) => market.symbol)).toEqual(['BTCUSDT', 'SOLUSDT'])
     expect(filterMarketList(markets, 'sol', setupSymbols, true).map((market) => market.symbol)).toEqual(['SOLUSDT'])
     expect(filterMarketList(markets, '', setupSymbols, false)).toHaveLength(3)
+  })
+
+  it('uses the Bybit tick size for an exact displayed price precision', () => {
+    expect(pricePrecisionFromTickSize('0.000001')).toBe(6)
+    expect(pricePrecisionFromTickSize('0.0000010')).toBe(6)
+    expect(pricePrecisionFromTickSize('0.5')).toBe(1)
+    expect(pricePrecisionFromTickSize('1')).toBe(0)
+    expect(formatPrice(0.003066, 6)).toBe('0.003066')
+    expect(formatPrice(64_242.2, 1)).toBe('64,242.2')
   })
 
   it('sorts markets by the supplied trend strength in both directions', () => {

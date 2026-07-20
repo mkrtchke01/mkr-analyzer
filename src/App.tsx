@@ -271,7 +271,7 @@ export default function App() {
             <div>
               <div className="eyebrow">{baseAsset(symbol)} / USDT · PERPETUAL</div>
               <div className="price-row">
-                <strong>{currentPrice ? formatPrice(currentPrice) : '—'}</strong>
+                <strong>{currentPrice ? formatPrice(currentPrice, selectedMarket?.pricePrecision) : '—'}</strong>
                 <span className={change >= 0 ? 'positive' : 'negative'}>{change >= 0 ? '+' : ''}{change.toFixed(2)}%</span>
               </div>
             </div>
@@ -288,7 +288,7 @@ export default function App() {
               </div>
             </div>
           </div>
-          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} tradePlans={fixedTradePlans} manualLevels={manualLevels} riskRewards={riskRewards} drawingMode={drawingMode} drawingAnchor={drawingAnchor} onDrawingPoint={addDrawingPoint} onUpdateRiskReward={updateRiskReward} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
+          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} priceTickSize={selectedMarket?.tickSize} pricePrecision={selectedMarket?.pricePrecision} tradePlans={fixedTradePlans} manualLevels={manualLevels} riskRewards={riskRewards} drawingMode={drawingMode} drawingAnchor={drawingAnchor} onDrawingPoint={addDrawingPoint} onUpdateRiskReward={updateRiskReward} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
           <footer className="chart-footer">
             <span>Свечи · {timeframe}</span>
             <span>Источник: Bybit public market data</span>
@@ -324,7 +324,7 @@ export default function App() {
               <span className="coin-icon">{baseAsset(market.symbol).slice(0, 1)}</span>
               <span className="coin-name"><span className="market-symbol"><b>{baseAsset(market.symbol)}</b>{activeMarketSetups[market.symbol]?.map((setup) => <em key={`${setup.type}-${setup.side}`}>{`${SETUP_META[setup.type].shortName} ${setup.side.toUpperCase()}`}</em>)}</span><small>USDT · PERP</small></span>
               <span className={`market-trend ${marketTrends[market.symbol]?.direction ?? 'flat'}`} title="Сила тренда"><i style={{ width: `${marketTrends[market.symbol]?.strength ?? 0}%` }} /></span>
-              <span className="market-values"><b>{market.price ? formatPrice(market.price) : '—'}</b><small className={market.change >= 0 ? 'positive' : 'negative'}>{market.change >= 0 ? '+' : ''}{market.change.toFixed(2)}%</small></span>
+              <span className="market-values"><b>{market.price ? formatPrice(market.price, market.pricePrecision) : '—'}</b><small className={market.change >= 0 ? 'positive' : 'negative'}>{market.change >= 0 ? '+' : ''}{market.change.toFixed(2)}%</small></span>
             </button>
           ))}
           {!visibleMarkets.length && <div className="empty-state">{setupsOnly ? 'Открытых сетапов пока нет' : 'Монеты не найдены'}</div>}

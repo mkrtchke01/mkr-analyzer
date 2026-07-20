@@ -8,6 +8,8 @@ import { createRiskRewardBox, getRiskRewardHandle, RiskRewardPrimitive } from '.
 type PriceChartProps = {
   symbol: string
   timeframe: Timeframe
+  priceTickSize?: number
+  pricePrecision?: number
   tradePlans: TradePlan[]
   manualLevels: ManualChartLevel[]
   riskRewards: RiskRewardBox[]
@@ -58,7 +60,7 @@ export function manualLevelFromChartPoint(price: number, time: Time): Omit<Manua
   return { price, time: Number(time), endPrice: price, endTime: Number(time) }
 }
 
-export default function PriceChart({ symbol, timeframe, tradePlans, manualLevels, riskRewards, drawingMode, drawingAnchor, onDrawingPoint, onUpdateRiskReward, onStatusChange, onPriceChange }: PriceChartProps) {
+export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrecision, tradePlans, manualLevels, riskRewards, drawingMode, drawingAnchor, onDrawingPoint, onUpdateRiskReward, onStatusChange, onPriceChange }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -137,6 +139,12 @@ export default function PriceChart({ symbol, timeframe, tradePlans, manualLevels
       levelPrimitiveRef.current = null
     }
   }, [])
+
+  useEffect(() => {
+    const series = seriesRef.current
+    if (!series || priceTickSize === undefined || pricePrecision === undefined) return
+    series.applyOptions({ priceFormat: { type: 'price', precision: pricePrecision, minMove: priceTickSize } })
+  }, [pricePrecision, priceTickSize])
 
   useEffect(() => {
     const preview = drawingMode === 'level' && drawingAnchor && drawingPreview
