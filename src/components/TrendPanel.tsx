@@ -25,8 +25,8 @@ const directionText: Record<TrendDirection, string> = {
 }
 
 const overallText: Record<OverallTrend, string> = {
-  'strong-long': 'СИЛЬНЫЙ LONG',
-  'strong-short': 'СИЛЬНЫЙ SHORT',
+  'strong-long': 'LONG / КОНТЕКСТ',
+  'strong-short': 'SHORT / КОНТЕКСТ',
   flat: 'ФЛЕТ / НЕТ СЕТАПА',
 }
 
@@ -58,7 +58,7 @@ export default function TrendPanel({ analyses, loading, error, tradePlans, marke
         <footer className={`overall-trend ${overall}`}>
           <span>ИТОГ</span>
           <strong>{overallText[overall]}</strong>
-          <small>{overall === 'flat' ? 'Временные интервалы не подтверждают единый сильный тренд' : 'Все таймфреймы подтверждают направление'}</small>
+          <small>{overall === 'flat' ? '1h не подтвердил направление или есть сильный контртренд' : '4h не против, 1h подтверждает; 15m и 5m без сильного контртренда'}</small>
         </footer>
         <section className="market-info" aria-label="Info">
           <div className="eyebrow">INFO</div>

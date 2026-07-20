@@ -70,6 +70,8 @@ export type RiskRewardBox = {
 const FAST_EMA = 21
 const SLOW_EMA = 55
 const PERIOD = 14
+const CONTEXT_MIN_STRENGTH = 35
+const STRONG_OPPOSING_STRENGTH = 55
 
 const clamp = (value: number, min = 0, max = 100) => Math.min(Math.max(value, min), max)
 
@@ -215,12 +217,13 @@ export function getOverallTrend(analyses: TrendAnalysis[]): OverallTrend {
   const ordered = ['4h', '1h', '15m', '5m'].map((timeframe) => analyses.find((analysis) => analysis.timeframe === timeframe))
   if (ordered.some((analysis) => !analysis)) return 'flat'
   const [global, confirmation, local, entry] = ordered as TrendAnalysis[]
-  const allBullish = ordered.every((analysis) => analysis?.direction === 'bullish')
-  const allBearish = ordered.every((analysis) => analysis?.direction === 'bearish')
-  const weightedStrength = global.strength * 0.4 + confirmation.strength * 0.3 + local.strength * 0.2 + entry.strength * 0.1
 
-  if (allBullish && global.strength >= 60 && confirmation.strength >= 50 && weightedStrength >= 55) return 'strong-long'
-  if (allBearish && global.strength >= 60 && confirmation.strength >= 50 && weightedStrength >= 55) return 'strong-short'
+  const supportsSide = (analysis: TrendAnalysis, side: TrendDirection) => analysis.direction === side || analysis.direction === 'flat' || analysis.strength < STRONG_OPPOSING_STRENGTH
+  const allowsContext = (side: TrendDirection) => global.direction === 'flat' || (global.direction === side && global.strength >= CONTEXT_MIN_STRENGTH)
+  const hasConfirmation = (side: TrendDirection) => confirmation.direction === side && confirmation.strength >= CONTEXT_MIN_STRENGTH
+
+  if (allowsContext('bullish') && hasConfirmation('bullish') && supportsSide(local, 'bullish') && supportsSide(entry, 'bullish')) return 'strong-long'
+  if (allowsContext('bearish') && hasConfirmation('bearish') && supportsSide(local, 'bearish') && supportsSide(entry, 'bearish')) return 'strong-short'
   return 'flat'
 }
 

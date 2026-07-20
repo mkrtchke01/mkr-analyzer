@@ -87,6 +87,21 @@ describe('trend analysis', () => {
     expect(getOverallTrend([...strongLong.slice(0, 3), analysis('5m', 'bearish', 55)])).toBe('flat')
   })
 
+  it('uses 4h as context and 1h as the required setup direction', () => {
+    const permissiveLong = [
+      analysis('4h', 'flat', 20),
+      analysis('1h', 'bullish', 40),
+      analysis('15m', 'flat', 20),
+      analysis('5m', 'bearish', 35),
+    ]
+    expect(getOverallTrend(permissiveLong)).toBe('strong-long')
+
+    expect(getOverallTrend([{ ...permissiveLong[0], direction: 'bearish' }, ...permissiveLong.slice(1)])).toBe('flat')
+    expect(getOverallTrend([{ ...permissiveLong[0], direction: 'bullish', strength: 34 }, ...permissiveLong.slice(1)])).toBe('flat')
+    expect(getOverallTrend([...permissiveLong.slice(0, 2), { ...permissiveLong[2], direction: 'bearish', strength: 55 }, permissiveLong[3]])).toBe('flat')
+    expect(getOverallTrend([...permissiveLong.slice(0, 3), { ...permissiveLong[3], direction: 'bearish', strength: 55 }])).toBe('flat')
+  })
+
   it('colors a market by the dominant weighted direction even without full confirmation', () => {
     const mixed = [analysis('4h', 'bullish', 70), analysis('1h', 'bearish', 30), analysis('15m', 'bullish', 50), analysis('5m', 'bullish', 40)]
 
