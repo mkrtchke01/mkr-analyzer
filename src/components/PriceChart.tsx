@@ -29,6 +29,10 @@ const chartOptions = {
   },
 }
 
+export function enableInitialVerticalPanning(chart: Pick<IChartApi, 'priceScale'>) {
+  chart.priceScale('right').applyOptions({ autoScale: false })
+}
+
 export default function PriceChart({ symbol, timeframe, tradePlans, onStatusChange, onPriceChange }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -98,7 +102,8 @@ export default function PriceChart({ symbol, timeframe, tradePlans, onStatusChan
     let disposed = false
     let retryId: number | undefined
     const series = seriesRef.current
-    if (!series) return
+    const chart = chartRef.current
+    if (!series || !chart) return
 
     const displayCandle = (candle: Candle) => {
       series.update(candle as unknown as CandlestickData<Time>)
@@ -111,6 +116,7 @@ export default function PriceChart({ symbol, timeframe, tradePlans, onStatusChan
         const candles = await getCandles(symbol, timeframe)
         if (disposed) return
         series.setData(candles as unknown as CandlestickData<Time>[])
+        enableInitialVerticalPanning(chart)
         const latest = candles.at(-1)
         if (latest) onPriceChange(latest.close)
       } catch {
