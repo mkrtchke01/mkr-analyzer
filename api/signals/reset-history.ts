@@ -1,8 +1,17 @@
-import { supabaseRequest } from '../_lib/supabase.js'
+import { getSupabaseConfiguration, supabaseRequest } from '../_lib/supabase.js'
 
 const RESET_CONFIRMATION = 'clear-history-20260721-3c88'
 
 type SignalSnapshot = { snapshot_path: string | null }
+
+async function deleteSnapshot(path: string) {
+  const { url, serviceKey } = getSupabaseConfiguration()
+  const response = await fetch(`${url}/storage/v1/object/signal-snapshots/${encodeURIComponent(path)}`, {
+    method: 'DELETE',
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+  })
+  if (!response.ok) throw new Error(`Failed to delete signal snapshot (${response.status})`)
+}
 
 export default async function handler(request: any, response: any) {
   if (request.method !== 'POST' || request.query?.confirm !== RESET_CONFIRMATION) return response.status(404).end()
@@ -13,7 +22,7 @@ export default async function handler(request: any, response: any) {
     let deletedSnapshots = 0
 
     for (const path of snapshotPaths) {
-      await supabaseRequest(`/storage/v1/object/signal-snapshots/${encodeURIComponent(path)}`, { method: 'DELETE' })
+      await deleteSnapshot(path)
       deletedSnapshots += 1
     }
 
