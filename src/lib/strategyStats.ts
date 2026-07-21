@@ -1,4 +1,4 @@
-import { RISK_PER_TRADE_USDT } from './positionSizing.js'
+const RISK_PER_TRADE_USDT = 2
 import { getScannerStrategy, SCANNER_STRATEGIES, type ScannerStrategyId, type SetupType } from './trend.js'
 
 export type StrategyStatsSignal = {

@@ -1,7 +1,7 @@
 import { getPublicSnapshotUrl, supabaseRequest } from '../_lib/supabase.js'
 import { calculateStrategyStats, type StrategyStatsSignal } from '../../src/lib/strategyStats.js'
 import { calculateSignalStrength } from '../../src/lib/signalStrength.js'
-import { calculateAccountSummary } from '../../src/lib/positionSizing.js'
+import { calculateAccountSummary } from '../_lib/account.js'
 
 function signalStrengthFromSnapshot(record: any): number | null {
   const storedScore = Number(record.plan_snapshot?.signalStrength?.score)

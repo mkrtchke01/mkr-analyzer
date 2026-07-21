@@ -3,7 +3,7 @@ import { getCandles, getMarkets, type Candle, type Timeframe } from '../../src/l
 import { createSignalSnapshot } from '../../src/lib/signalSnapshot.js'
 import { evaluateSignalCandle, type ManagedSignal } from '../../src/lib/signalLifecycle.js'
 import { calculateSignalStrength } from '../../src/lib/signalStrength.js'
-import { calculateAccountSummary, calculatePositionSizing, MAX_OPEN_POSITIONS, STARTING_BALANCE_USDT } from '../../src/lib/positionSizing.js'
+import { calculateAccountSummary, calculatePositionSizing, MAX_OPEN_POSITIONS, STARTING_BALANCE_USDT } from '../_lib/account.js'
 import { analyzeTrend, calculateTradePlans, getOverallTrend, type SetupType, type TradePlan, type TrendAnalysis } from '../../src/lib/trend.js'
 import { isAuthorizedCronRequest, supabaseRequest, uploadSnapshot } from '../_lib/supabase.js'
 
