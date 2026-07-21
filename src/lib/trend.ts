@@ -85,7 +85,7 @@ const PERIOD = 14
 const CONTEXT_MIN_STRENGTH = 35
 const STRONG_OPPOSING_STRENGTH = 55
 const BREAKOUT_RETEST_STOP_BUFFER_ATR = 0.4
-const BREAKOUT_RETEST_MAX_ENTRY_DISTANCE_ATR = 1.5
+const BREAKOUT_RETEST_MAX_ENTRY_DISTANCE_ATR = 0.75
 const BREAKOUT_RETEST_MAX_RETEST_AGE_CANDLES = 1
 const BREAKOUT_RETEST_LEVEL_TOUCH_ATR = 0.15
 
@@ -490,6 +490,13 @@ function findSignificantHourlyLevels(candles: Candle[], kind: 'high' | 'low'): S
 
 type RetestLevel = HourlyRange & { side: 'long' | 'short' }
 
+export function countPreBreakoutLevelTouches(candles: Candle[], index: number, kind: 'high' | 'low', atr: number): number {
+  const level = kind === 'high' ? candles[index].high : candles[index].low
+  return candles.slice(Math.max(0, index - 80), index + 1).filter((candle) => kind === 'high'
+    ? candle.high >= level - atr * 0.25 && candle.high <= level + atr * 0.15
+    : candle.low <= level + atr * 0.25 && candle.low >= level - atr * 0.15).length
+}
+
 function findRecentFifteenMinuteRetestLevels(candles: Candle[]): RetestLevel[] {
   const atr = calculateAtr(candles)
   if (!atr) return []
@@ -504,15 +511,15 @@ function findRecentFifteenMinuteRetestLevels(candles: Candle[]): RetestLevel[] {
       const reaction = kind === 'high'
         ? level - Math.min(...after.map((candle) => candle.low))
         : Math.max(...after.map((candle) => candle.high)) - level
-      const touches = after.filter((candle) => kind === 'high'
-        ? candle.high >= level - atr * 0.25 && candle.close <= level + atr * 0.15
-        : candle.low <= level + atr * 0.25 && candle.close >= level - atr * 0.15).length
-      if (touches < 2) continue
+      const touchesBeforeBreakout = countPreBreakoutLevelTouches(candles, index, kind, atr)
+      // A breakout level must be visible before the breakout. Counting later candles
+      // here turns an arbitrary pullback pivot into a false "level".
+      if (touchesBeforeBreakout < 2) continue
       levels.push({
         side,
         level,
         height: Math.min(atr * 3, Math.max(atr * 1.5, reaction)),
-        touches,
+        touches: touchesBeforeBreakout,
         endTime: candles[index].time,
       })
     }
