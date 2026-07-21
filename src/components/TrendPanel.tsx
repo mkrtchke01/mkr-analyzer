@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { marketInfoText, type MarketInfoSignal } from '../lib/marketInfo'
 import { getOverallTrend, type OverallTrend, type TradePlan, type TrendAnalysis, type TrendDirection } from '../lib/trend'
 import { formatPrice } from '../lib/bybit'
@@ -42,18 +43,75 @@ function formatQuantity(value: number) {
   return value.toFixed(6)
 }
 
+export function clipboardPriceValue(price: number) {
+  return formatPrice(price).replaceAll(',', '')
+}
+
+async function copyPrice(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.append(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  textarea.remove()
+
+  if (!copied) throw new Error('Clipboard is unavailable')
+}
+
 export function TradePlans({ tradePlans, availableBalance }: TradePlansProps) {
+  const [copiedPrice, setCopiedPrice] = useState<string | null>(null)
+
   if (!tradePlans.length) return null
+
+  const handleCopy = (id: string, price: number) => {
+    const value = clipboardPriceValue(price)
+    const copiedId = `${id}-${value}`
+
+    void copyPrice(value)
+      .then(() => {
+        setCopiedPrice(copiedId)
+        window.setTimeout(() => setCopiedPrice((current) => current === copiedId ? null : current), 1600)
+      })
+      .catch(() => setCopiedPrice(null))
+  }
+
+  const priceCell = (id: string, label: string, price: number, detail: string, tone: 'entry' | 'stop' | 'target') => {
+    const value = formatPrice(price)
+    const copiedId = `${id}-${clipboardPriceValue(price)}`
+    const isCopied = copiedPrice === copiedId
+
+    return <div className={`trade-price-cell ${tone}`} key={id}>
+      <span>{label}</span>
+      <button type="button" onClick={() => handleCopy(id, price)} title="Скопировать цену">
+        {isCopied ? 'СКОПИРОВАНО' : value}
+      </button>
+      <small>{detail}</small>
+    </div>
+  }
 
   return <section className="trade-plans" aria-label="План сделки">
     {tradePlans.map((tradePlan) => {
       const sizing = tradePlan.stop.price ? calculatePositionSizing(tradePlan.stop.entry, tradePlan.stop.price, availableBalance) : undefined
       return <div className={`trade-plan ${tradePlan.stop.side}`} key={tradePlan.setupType}>
         {tradePlan.stop.price ? <>
-          <b className="setup-plan-name">{tradePlan.setupName} · {tradePlan.stop.side.toUpperCase()}</b>
-          <span>ENTRY {formatPrice(tradePlan.stop.entry)}</span>
-          <strong>STOP {formatPrice(tradePlan.stop.price)} · {tradePlan.stop.distancePercent!.toFixed(2)}%</strong>
-          {tradePlan.takeProfits.map((target) => <span key={target.id}>{target.id} {formatPrice(target.price)} · {target.riskMultiple}R · {target.share}%</span>)}
+          <header className="trade-plan-header">
+            <b className="setup-plan-name">{tradePlan.setupName}</b>
+            <strong>{tradePlan.stop.side.toUpperCase()}</strong>
+            <small>Нажмите на цену, чтобы скопировать</small>
+          </header>
+          <div className="trade-price-grid">
+            {priceCell(`${tradePlan.setupType}-entry`, 'ВХОД', tradePlan.stop.entry, 'Цена входа', 'entry')}
+            {priceCell(`${tradePlan.setupType}-stop`, 'СТОП', tradePlan.stop.price, `${tradePlan.stop.distancePercent!.toFixed(2)}% риска`, 'stop')}
+            {tradePlan.takeProfits.map((target) => priceCell(`${tradePlan.setupType}-${target.id}`, target.id, target.price, `${target.riskMultiple}R · ${target.share}% позиции`, 'target'))}
+          </div>
           {sizing && <span className="position-sizing">РИСК ${sizing.riskAmount.toFixed(2)} · ОРДЕР ${sizing.notional.toFixed(2)} · {sizing.leverage}× · МАРЖА ${sizing.margin.toFixed(2)} · QTY {formatQuantity(sizing.quantity)}</span>}
           <span className="pullback">{tradePlan.setupNote}</span>
         </> : <span>{tradePlan.stop.reason}</span>}
