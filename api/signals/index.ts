@@ -4,6 +4,16 @@ export default async function handler(request: any, response: any) {
   if (request.method !== 'GET') return response.status(405).json({ error: 'Method not allowed' })
 
   try {
+    if (request.query?.state === 'account') {
+      const records = await supabaseRequest<Array<{ status: string; tp2_price: string | null; tp3_price: string | null; outcome_r: string | null }>>('/rest/v1/mkr_signals?select=status,tp2_price,tp3_price,outcome_r&status=in.(active,tp1,tp2,tp3,stop,expired,ambiguous)&outcome_r=not.is.null&limit=1000')
+      const outcomesR = records
+        .filter((record) => record.status === 'tp3' || record.status === 'stop' || record.status === 'expired' || record.status === 'ambiguous' || (record.status === 'tp1' && record.tp2_price === null) || (record.status === 'tp2' && record.tp3_price === null))
+        .map((record) => Number(record.outcome_r))
+        .filter(Number.isFinite)
+      response.setHeader('Cache-Control', 'no-store')
+      return response.status(200).json({ outcomesR })
+    }
+
     const state = request.query?.state === 'closed' ? 'closed' : 'open'
     const records = await supabaseRequest<any[]>('/rest/v1/mkr_signals?select=*&status=in.(active,tp1,tp2,tp3,stop,expired,ambiguous)&order=detected_at.desc&limit=100')
     const filtered = records.filter((record) => state === 'open'

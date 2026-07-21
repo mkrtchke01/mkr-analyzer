@@ -4,8 +4,9 @@ import { createRiskRewardBox } from './components/RiskReward'
 import SignalHistory from './components/SignalHistory'
 import TrendPanel from './components/TrendPanel'
 import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, MARKET_LIST_LIMIT, sortMarketsByTrend, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
-import { getSavedSignals, tradePlanFromSavedSignal, type SavedSignal } from './lib/signals'
+import { getAccountSummary, getSavedSignals, tradePlanFromSavedSignal, type SavedSignal } from './lib/signals'
 import { getMarketInfo, type DivergenceInfo, type MarketInfoSignal } from './lib/marketInfo'
+import { RISK_PER_TRADE_USDT, STARTING_BALANCE_USDT, type AccountSummary } from './lib/positionSizing'
 import { analyzeTrend, getTrendIndicator, SETUP_META, type ManualChartLevel, type RiskRewardBox, type SetupSignal, type SetupType, type TrendAnalysis, type TrendIndicator } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
@@ -63,6 +64,7 @@ export default function App() {
   const [trendSort, setTrendSort] = useState<TrendSort>('none')
   const [setupScanning, setSetupScanning] = useState(false)
   const [savedOpenSignals, setSavedOpenSignals] = useState<SavedSignal[]>([])
+  const [accountSummary, setAccountSummary] = useState<AccountSummary>({ balance: STARTING_BALANCE_USDT, pnl: 0, closedTrades: 0 })
   const [historyOpen, setHistoryOpen] = useState(false)
   const [marketInfo, setMarketInfo] = useState<MarketInfoSignal[]>([])
   const [rsiDivergencesBySymbol, setRsiDivergencesBySymbol] = useState<Record<string, Array<DivergenceInfo & { id: string }>>>({})
@@ -154,8 +156,11 @@ export default function App() {
     let disposed = false
     const loadSavedSignals = async () => {
       try {
-        const items = await getSavedSignals('open')
-        if (!disposed) setSavedOpenSignals(items)
+        const [items, summary] = await Promise.all([getSavedSignals('open'), getAccountSummary()])
+        if (!disposed) {
+          setSavedOpenSignals(items)
+          setAccountSummary(summary)
+        }
       } catch {
         // The feature remains usable before the first database migration is applied.
       }
@@ -355,6 +360,11 @@ export default function App() {
         <header className="topbar">
           <div className="brand"><span className="brand-mark">M</span> MKR <span>ANALYZER</span></div>
           <div className="market-mode"><span className="live-dot" /> PERPETUAL · BYBIT</div>
+          <div className="account-balance" title="Старт $50. Баланс меняется по закрытым сигналам: результат в R × риск $2.">
+            <span>БАЛАНС</span>
+            <strong>${accountSummary.balance.toFixed(2)}</strong>
+            <small className={accountSummary.pnl >= 0 ? 'positive' : 'negative'}>{accountSummary.pnl >= 0 ? '+' : ''}{accountSummary.pnl.toFixed(2)} · РИСК ${RISK_PER_TRADE_USDT}</small>
+          </div>
           <button className="history-trigger" onClick={() => setHistoryOpen(true)}>История <b>{savedOpenSignals.length}</b></button>
           <div className="timeframe-selector" aria-label="Таймфрейм графика">
             {Object.keys(TIMEFRAMES).map((item) => {
@@ -392,7 +402,7 @@ export default function App() {
             <span>Источник: Bybit public market data</span>
           </footer>
         </section>
-        <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} tradePlans={fixedTradePlans} marketInfo={marketInfo} onShowMarketInfo={showMarketInfo} />
+        <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} tradePlans={fixedTradePlans} marketInfo={marketInfo} availableBalance={accountSummary.balance} onShowMarketInfo={showMarketInfo} />
       </section>
 
       <aside className="markets-panel">

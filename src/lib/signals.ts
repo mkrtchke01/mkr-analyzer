@@ -1,3 +1,5 @@
+import { calculateAccountSummary, type AccountSummary } from './positionSizing'
+
 export type SignalState = 'open' | 'closed'
 export type SignalStatus = 'active' | 'tp1' | 'tp2' | 'tp3' | 'stop' | 'expired' | 'ambiguous'
 export type SavedSetupType = 'trend-reclaim' | 'level-breakout' | 'false-breakout' | 'bottom-reversal' | 'top-reversal' | 'breakout-retest' | 'consensus'
@@ -50,5 +52,12 @@ export async function getSavedSignals(state: SignalState): Promise<SavedSignal[]
   if (!response.ok) throw new Error('Не удалось загрузить историю сигналов')
   const payload = await response.json() as { signals: SavedSignal[] }
   return payload.signals
+}
+
+export async function getAccountSummary(): Promise<AccountSummary> {
+  const response = await fetch('/api/signals?state=account')
+  if (!response.ok) throw new Error('Не удалось загрузить баланс')
+  const payload = await response.json() as { outcomesR: Array<number | null> }
+  return calculateAccountSummary(payload.outcomesR)
 }
 import { SETUP_META, type TradePlan } from './trend'

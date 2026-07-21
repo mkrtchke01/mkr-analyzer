@@ -1,6 +1,7 @@
 import { marketInfoText, type MarketInfoSignal } from '../lib/marketInfo'
 import { getOverallTrend, type OverallTrend, type TradePlan, type TrendAnalysis, type TrendDirection } from '../lib/trend'
 import { formatPrice } from '../lib/bybit'
+import { calculatePositionSizing } from '../lib/positionSizing'
 
 type TrendPanelProps = {
   analyses: TrendAnalysis[]
@@ -8,6 +9,7 @@ type TrendPanelProps = {
   error: boolean
   tradePlans: TradePlan[]
   marketInfo: MarketInfoSignal[]
+  availableBalance: number
   onShowMarketInfo: (signal: MarketInfoSignal) => void
 }
 
@@ -31,7 +33,13 @@ const overallText: Record<OverallTrend, string> = {
   flat: 'ФЛЕТ / НЕТ СЕТАПА',
 }
 
-export default function TrendPanel({ analyses, loading, error, tradePlans, marketInfo, onShowMarketInfo }: TrendPanelProps) {
+function formatQuantity(value: number) {
+  if (value >= 1) return value.toFixed(3)
+  if (value >= 0.01) return value.toFixed(4)
+  return value.toFixed(6)
+}
+
+export default function TrendPanel({ analyses, loading, error, tradePlans, marketInfo, availableBalance, onShowMarketInfo }: TrendPanelProps) {
   const overall = getOverallTrend(analyses)
 
   return (
@@ -67,15 +75,18 @@ export default function TrendPanel({ analyses, loading, error, tradePlans, marke
             ? <ul>{marketInfo.map((signal) => <li className={signal.side} key={`${signal.type}-${signal.timeframe}`}><span>{marketInfoText(signal)}</span>{(signal.divergence || signal.level || signal.correction) && <button onClick={() => onShowMarketInfo(signal)}>Показать</button>}</li>)}</ul>
             : <p>Особых рыночных событий на 15m, 1h и 4h не обнаружено</p>}
         </section>
-        {tradePlans.map((tradePlan) => <div className={`trade-plan ${tradePlan.stop.side}`} key={tradePlan.setupType}>
+        {tradePlans.map((tradePlan) => {
+          const sizing = tradePlan.stop.price ? calculatePositionSizing(tradePlan.stop.entry, tradePlan.stop.price, availableBalance) : undefined
+          return <div className={`trade-plan ${tradePlan.stop.side}`} key={tradePlan.setupType}>
           {tradePlan.stop.price ? <>
             <b className="setup-plan-name">{tradePlan.setupName} · {tradePlan.stop.side.toUpperCase()}</b>
             <span>ENTRY {formatPrice(tradePlan.stop.entry)}</span>
             <strong>STOP {formatPrice(tradePlan.stop.price)} · {tradePlan.stop.distancePercent!.toFixed(2)}%</strong>
             {tradePlan.takeProfits.map((target) => <span key={target.id}>{target.id} {formatPrice(target.price)} · {target.riskMultiple}R · {target.share}%</span>)}
+            {sizing && <span className="position-sizing">РИСК ${sizing.riskAmount.toFixed(2)} · ОРДЕР ${sizing.notional.toFixed(2)} · {sizing.leverage}× · МАРЖА ${sizing.margin.toFixed(2)} · QTY {formatQuantity(sizing.quantity)}</span>}
             <span className="pullback">{tradePlan.setupNote}</span>
           </> : <span>{tradePlan.stop.reason}</span>}
-        </div>)}
+        </div>})}
       </>}
     </section>
   )
