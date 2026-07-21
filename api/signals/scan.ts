@@ -27,6 +27,10 @@ type StoredSignal = {
   expires_at: string
 }
 
+type ScannerRun = { id: string }
+type ScanMarketResult = { plansFound: number, created: number }
+type ScannerErrorPhase = 'monitor' | 'market' | 'persistence' | 'run'
+
 const runWithConcurrency = async <T>(items: T[], task: (item: T) => Promise<void>) => {
   let cursor = 0
   const worker = async () => {
@@ -40,6 +44,33 @@ const runWithConcurrency = async <T>(items: T[], task: (item: T) => Promise<void
 }
 
 const closedCandles = (candles: Candle[]) => candles.slice(0, -1)
+
+const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
+
+async function logScannerError(runId: string | undefined, phase: ScannerErrorPhase, error: unknown, symbol?: string, details: Record<string, unknown> = {}) {
+  const message = errorMessage(error)
+  console.error(`[scanner:${phase}]${symbol ? ` ${symbol}` : ''} ${message}`)
+  if (!runId) return
+
+  try {
+    await supabaseRequest('/rest/v1/mkr_scanner_errors', {
+      method: 'POST',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ run_id: runId, phase, symbol, message, details }),
+    })
+  } catch (loggingError) {
+    console.error(`[scanner:log] ${errorMessage(loggingError)}`)
+  }
+}
+
+async function finishScannerRun(runId: string | undefined, values: Record<string, unknown>) {
+  if (!runId) return
+  await supabaseRequest(`/rest/v1/mkr_scanner_runs?id=eq.${encodeURIComponent(runId)}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ ...values, finished_at: new Date().toISOString() }),
+  })
+}
 
 async function createEvent(signalId: string, type: string, candle: Candle, details: Record<string, unknown> = {}) {
   await supabaseRequest('/rest/v1/mkr_signal_events', {
@@ -102,7 +133,7 @@ async function monitorSignal(signal: StoredSignal) {
   }
 }
 
-export async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnalysis[], entryCandles: Candle[]) {
+export async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnalysis[], entryCandles: Candle[], runId?: string) {
   if (!plan.stop.price) return false
 
   const confirmationCandle = entryCandles.at(-1)
@@ -148,18 +179,18 @@ export async function persistPlan(symbol: string, plan: TradePlan, analyses: Tre
     const snapshot = createSignalSnapshot(symbol, entryCandles, plan, detectedAt)
     await uploadSnapshot(snapshotPath, snapshot)
     await patchSignal(id, { snapshot_path: snapshotPath })
-  } catch {
-    console.error(`Signal snapshot upload failed for ${symbol}; keeping the signal without a snapshot`)
+  } catch (error) {
+    await logScannerError(runId, 'persistence', error, symbol, { operation: 'snapshot-upload', signalId: id })
   }
   try {
     await createEvent(id, 'detected', confirmationCandle, { trend: getOverallTrend(analyses), setupType: plan.setupType, entry: plan.stop.entry, stop: plan.stop.price })
-  } catch {
-    console.error(`Signal event creation failed for ${symbol}; keeping the signal`)
+  } catch (error) {
+    await logScannerError(runId, 'persistence', error, symbol, { operation: 'event-create', signalId: id })
   }
   return true
 }
 
-async function scanMarket(symbol: string) {
+async function scanMarket(symbol: string, runId?: string): Promise<ScanMarketResult> {
   const multiTimeframeCandles = await Promise.all(ANALYSIS_TIMEFRAMES.map((timeframe) => getCandles(symbol, timeframe, timeframe === '5m' ? 360 : 180)))
   const confirmed = multiTimeframeCandles.map(closedCandles)
   const analyses = confirmed.map((candles, index) => analyzeTrend(candles, ANALYSIS_TIMEFRAMES[index]))
@@ -174,41 +205,65 @@ async function scanMarket(symbol: string) {
   })
   let created = 0
   for (const plan of plans) {
-    if (await persistPlan(symbol, plan, analyses, entryCandles)) created += 1
+    if (await persistPlan(symbol, plan, analyses, entryCandles, runId)) created += 1
   }
-  return created
+  return { plansFound: plans.length, created }
 }
 
 export default async function handler(request: any, response: any) {
   if (request.method !== 'POST') return response.status(405).json({ error: 'Method not allowed' })
   if (!isAuthorizedCronRequest(request.headers.authorization)) return response.status(401).json({ error: 'Unauthorized' })
 
+  let runId: string | undefined
   try {
+    const startedRuns = await supabaseRequest<ScannerRun[]>('/rest/v1/mkr_scanner_runs', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({}),
+    })
+    runId = startedRuns[0]?.id
     const storedOpenSignals = await supabaseRequest<StoredSignal[]>('/rest/v1/mkr_signals?select=*&status=in.(active,tp1,tp2)')
     const openSignals = storedOpenSignals.filter((signal) => (signal.status === 'tp1' && signal.tp2_price !== null) || (signal.status === 'tp2' && signal.tp3_price !== null) || signal.status === 'active')
     let monitored = 0
+    let monitorErrors = 0
     await runWithConcurrency(openSignals, async (signal) => {
       try {
         await monitorSignal(signal)
         monitored += 1
-      } catch {
-        // One missing market must not stop monitoring other signals.
+      } catch (error) {
+        monitorErrors += 1
+        await logScannerError(runId, 'monitor', error, signal.symbol, { signalId: signal.id })
       }
     })
 
     const markets = await getMarkets()
     let created = 0
+    let plansFound = 0
+    let marketErrors = 0
     await runWithConcurrency(markets, async (market) => {
       try {
-        created += await scanMarket(market.symbol)
-      } catch {
-        // Bybit can temporarily reject an individual instrument.
+        const result = await scanMarket(market.symbol, runId)
+        plansFound += result.plansFound
+        created += result.created
+      } catch (error) {
+        marketErrors += 1
+        await logScannerError(runId, 'market', error, market.symbol)
       }
     })
+    await finishScannerRun(runId, {
+      status: monitorErrors || marketErrors ? 'partial' : 'success',
+      scanned_count: markets.length,
+      plans_found_count: plansFound,
+      created_count: created,
+      market_error_count: marketErrors,
+      monitor_error_count: monitorErrors,
+      details: { monitored, openSignals: openSignals.length },
+    })
     response.setHeader('Cache-Control', 'no-store')
-    return response.status(200).json({ ok: true, monitored, created, scanned: markets.length })
+    return response.status(200).json({ ok: true, runId, monitored, created, plansFound, scanned: markets.length, marketErrors, monitorErrors })
   } catch (error) {
-    console.error('Signal scan failed', error)
-    return response.status(500).json({ error: error instanceof Error ? error.message : 'Signal scan failed' })
+    await logScannerError(runId, 'run', error)
+    await finishScannerRun(runId, { status: 'failed', error_message: errorMessage(error) }).catch(() => undefined)
+    return response.status(500).json({ error: errorMessage(error) })
   }
 }
