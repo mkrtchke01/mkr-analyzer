@@ -80,7 +80,6 @@ export type TradePlan = {
   setupNote: string
   stop: StopProposal
   takeProfits: TakeProfitLevel[]
-  triggerLevel?: { price: number, label: string }
   signalKey?: string
   entryTime?: number
   signalStrength?: SignalStrength
@@ -516,9 +515,7 @@ function findSignificantHourlyLevels(candles: Candle[], kind: 'high' | 'low'): S
     const invalidatingCloses = after.filter((candle) => kind === 'high'
       ? candle.close > level + atr * 0.35
       : candle.close < level - atr * 0.35).length
-    // Ложный пробой строится только от очевидного 1h уровня: минимум два
-    // контакта и реакция от него. Один экстремум после импульса — не уровень.
-    if (touches < 2 || reactionAtr < 1 || invalidatingCloses > 1) continue
+    if ((touches < 2 && reactionAtr < 1.5) || invalidatingCloses > 1) continue
     if (!levels.some((candidate) => Math.abs(candidate.level - level) < atr * 0.2)) levels.push({ level, kind, touches, reactionAtr, time: candles[index].time })
   }
 
@@ -617,21 +614,37 @@ function hasFalseBreakoutConfirmation(candles: Candle[], sweepIndex: number, sid
   const directionalCandles = confirmation.filter((candle) => side === 'long' ? candle.close > candle.open : candle.close < candle.open)
   const current = confirmation.at(-1)!
   const movedAway = side === 'long' ? current.close >= level + atr * 0.15 : current.close <= level - atr * 0.15
-  const heldBackInside = confirmation.every((candle) => side === 'long'
-    ? candle.low >= level - atr * 0.1 && candle.close >= level
-    : candle.high <= level + atr * 0.1 && candle.close <= level)
-  return directionalCandles.length >= 2 && (side === 'long' ? current.close > current.open : current.close < current.open) && movedAway && heldBackInside
+  const invalidated = confirmation.some((candle) => side === 'long'
+    ? candle.close < level - atr * 0.35
+    : candle.close > level + atr * 0.35)
+  return directionalCandles.length >= 2 && (side === 'long' ? current.close > current.open : current.close < current.open) && movedAway && !invalidated
+}
+
+function hasDominantFalseBreakoutBody(candle: Candle, side: 'long' | 'short'): boolean {
+  const body = Math.abs(candle.close - candle.open)
+  const breakoutWick = side === 'long'
+    ? Math.min(candle.open, candle.close) - candle.low
+    : candle.high - Math.max(candle.open, candle.close)
+  return body > breakoutWick
 }
 
 function buildFalseBreakoutTargets(entry: number, stopPrice: number, side: 'long' | 'short', candles: Candle[], hourlyCandles: Candle[], sweepIndex: number): TakeProfitLevel[] | undefined {
   const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
   if (risk <= 0) return undefined
+  const localTarget = findLastSwing(candles, side === 'long' ? 'high' : 'low', sweepIndex - 1)
+  if (!localTarget) return undefined
+  const firstReward = side === 'long' ? localTarget.price - entry : entry - localTarget.price
+  if (firstReward < risk * 1.5) return undefined
+
   const direction = side === 'long' ? 1 : -1
   const targetAtThreeR = entry + direction * risk * 3
-  const localTarget = findLastSwing(candles, side === 'long' ? 'high' : 'low', sweepIndex - 1)
-  const followUpTargets = [localTarget?.price, ...findHourlyTargets(hourlyCandles, side, entry)]
-    .filter((price): price is number => price !== undefined && (side === 'long' ? price > targetAtThreeR : price < targetAtThreeR))
-  const selected = [targetAtThreeR, ...followUpTargets]
+  const nearestLevelIsCloser = side === 'long'
+    ? localTarget.price < targetAtThreeR
+    : localTarget.price > targetAtThreeR
+  const firstTarget = nearestLevelIsCloser ? localTarget.price : targetAtThreeR
+  const followUpTargets = [localTarget.price, ...findHourlyTargets(hourlyCandles, side, entry)]
+    .filter((price) => side === 'long' ? price > firstTarget : price < firstTarget)
+  const selected = [firstTarget, ...followUpTargets]
     .filter((price, index, prices) => prices.findIndex((candidate) => Math.abs(candidate - price) < risk * 0.15) === index)
     .slice(0, 3)
   const shares = selected.length === 3 ? [40, 35, 25] : selected.length === 2 ? [50, 50] : [100]
@@ -655,9 +668,9 @@ export function calculateFalseBreakoutPlan(candles: Candle[], side: 'long' | 'sh
     for (let sweepIndex = lastIndex - 3; sweepIndex <= lastIndex - 2; sweepIndex += 1) {
       const sweep = candles[sweepIndex]
       const sweptAndClosedBack = side === 'long'
-        ? sweep.low <= level.level - atr * 0.15 && sweep.open >= level.level && sweep.close >= level.level
-        : sweep.high >= level.level + atr * 0.15 && sweep.open <= level.level && sweep.close <= level.level
-      if (!sweptAndClosedBack || !hasFalseBreakoutConfirmation(candles, sweepIndex, side, level.level, atr)) continue
+        ? sweep.low <= level.level - atr * 0.15 && sweep.close >= level.level
+        : sweep.high >= level.level + atr * 0.15 && sweep.close <= level.level
+      if (!sweptAndClosedBack || !hasDominantFalseBreakoutBody(sweep, side) || !hasFalseBreakoutConfirmation(candles, sweepIndex, side, level.level, atr)) continue
 
       const entry = candles.at(-1)!.close
       const stopPrice = side === 'long' ? sweep.low - atr * 0.25 : sweep.high + atr * 0.25
@@ -670,7 +683,6 @@ export function calculateFalseBreakoutPlan(candles: Candle[], side: 'long' | 'sh
         setupType: 'false-breakout',
         setupName: SETUP_META['false-breakout'].name,
         setupNote: `Ложный пробой 1h уровня ${level.level.toPrecision(6)} · вынос ${((side === 'long' ? level.level - sweep.low : sweep.high - level.level) / atr).toFixed(2)} ATR · 5m реакция ${lastIndex - sweepIndex} свечи`,
-        triggerLevel: { price: level.level, label: 'FB УРОВЕНЬ 1h' },
         stop: {
           side,
           entry,

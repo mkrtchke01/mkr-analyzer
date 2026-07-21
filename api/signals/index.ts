@@ -72,7 +72,6 @@ export default async function handler(request: any, response: any) {
         tp1Price: Number(record.tp1_price),
         tp2Price: record.tp2_price === null ? undefined : Number(record.tp2_price),
         takeProfits: record.plan_snapshot?.takeProfits,
-        triggerLevel: record.plan_snapshot?.triggerLevel,
         signalStrength: signalStrengthFromSnapshot(record),
         positionSizing: record.plan_snapshot?.positionSizing,
         lastPrice: Number(record.last_price),

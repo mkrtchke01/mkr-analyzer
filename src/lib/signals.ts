@@ -18,7 +18,6 @@ export type SavedSignal = {
   tp1Price: number
   tp2Price?: number
   takeProfits?: TradePlan['takeProfits']
-  triggerLevel?: TradePlan['triggerLevel']
   signalStrength: number | null
   positionSizing?: PositionSizing
   lastPrice: number
@@ -50,7 +49,6 @@ export function tradePlanFromSavedSignal(signal: SavedSignal): TradePlan {
           { id: 'TP1', price: signal.tp1Price, share: 50, riskMultiple: initialRisk ? Math.abs(signal.tp1Price - signal.entryPrice) / initialRisk : 1.5 },
           { id: 'TP2', price: signal.tp2Price, share: 50, riskMultiple },
         ]),
-    triggerLevel: signal.triggerLevel,
     positionSizing: signal.positionSizing,
   }
 }

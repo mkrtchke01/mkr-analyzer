@@ -6,7 +6,7 @@ const escapeXml = (value: string) => value.replace(/[<>&"']/g, (symbol) => ({ '<
 export function createSignalSnapshot(symbol: string, candles: Candle[], plan: TradePlan, detectedAt: string): string {
   const visible = candles.slice(-100)
   const prices = visible.flatMap((candle) => [candle.high, candle.low, candle.open, candle.close])
-  const levels = [plan.stop.price, plan.triggerLevel?.price, ...plan.takeProfits.map((target) => target.price)].filter((price): price is number => price !== undefined)
+  const levels = [plan.stop.price, ...plan.takeProfits.map((target) => target.price)].filter((price): price is number => price !== undefined)
   const min = Math.min(...prices, ...levels)
   const max = Math.max(...prices, ...levels)
   const padding = Math.max((max - min) * 0.08, Number.EPSILON)
@@ -40,8 +40,7 @@ export function createSignalSnapshot(symbol: string, candles: Candle[], plan: Tr
     return `<line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" stroke="${color}" stroke-dasharray="4 4"/><rect x="${width - right + 4}" y="${y - 12}" width="${right - 8}" height="24" rx="3" fill="${color}"/><text x="${width - right + 10}" y="${y + 4}" fill="#10151d" font-family="monospace" font-size="11">${escapeXml(label)}</text>`
   }
   const stop = plan.stop.price ? level(`STOP ${plan.stop.price.toPrecision(6)}`, plan.stop.price, '#ff667a') : ''
-  const triggerLevel = plan.triggerLevel ? level(plan.triggerLevel.label, plan.triggerLevel.price, '#f2c15d') : ''
   const targets = plan.takeProfits.map((target) => level(`${target.id} ${target.price.toPrecision(6)}`, target.price, '#31d28c')).join('')
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#0c1019"/><text x="${left}" y="31" fill="#edf1f7" font-family="Arial, sans-serif" font-size="20" font-weight="700">${escapeXml(symbol)} · ${escapeXml(plan.setupName)} · ${plan.stop.side.toUpperCase()}</text><text x="${left}" y="53" fill="#8390a3" font-family="monospace" font-size="11">${escapeXml(detectedAt)} · 5m snapshot</text>${grid}${bodies}${triggerLevel}${stop}${targets}<text x="${left}" y="${height - 18}" fill="#748095" font-family="monospace" font-size="10">Snapshot is fixed at signal confirmation</text></svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#0c1019"/><text x="${left}" y="31" fill="#edf1f7" font-family="Arial, sans-serif" font-size="20" font-weight="700">${escapeXml(symbol)} · ${escapeXml(plan.setupName)} · ${plan.stop.side.toUpperCase()}</text><text x="${left}" y="53" fill="#8390a3" font-family="monospace" font-size="11">${escapeXml(detectedAt)} · 5m snapshot</text>${grid}${bodies}${stop}${targets}<text x="${left}" y="${height - 18}" fill="#748095" font-family="monospace" font-size="10">Snapshot is fixed at signal confirmation</text></svg>`
 }

@@ -98,8 +98,8 @@ const makeFalseBreakoutCandles = (): Candle[] => {
   set(24, 117, 117.8, 117.2, 117.5)
   set(25, 117.5, 118.5, 117.6, 118)
   set(27, 120.4, 120.8, 120, 120.6)
-  // The wick sweeps the 1h resistance at 121, but the body closes back below it.
-  set(28, 120.6, 121.4, 120.2, 120.7)
+  // Цена открылась за 1h сопротивлением 121 и вернулась под него; тело больше верхней тени.
+  set(28, 121.3, 121.4, 120.2, 120.7)
   set(29, 120.7, 120.8, 119.8, 120)
   set(30, 120, 120.1, 119.5, 119.7)
   set(31, 119.7, 119.8, 119.2, 119.5)
@@ -353,11 +353,10 @@ describe('trend analysis', () => {
     expect(plan!.setupNote).toContain('5m реакция 3 свечи')
     expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
     expect(plan!.stop.distanceAtr).toBeLessThanOrEqual(2.5)
-    expect(plan!.takeProfits[0].riskMultiple).toBeCloseTo(3, 6)
-    expect(plan!.triggerLevel).toMatchObject({ label: 'FB УРОВЕНЬ 1h' })
+    expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.5)
   })
 
-  it('uses 3R for the first false-breakout target regardless of the nearest level', () => {
+  it('uses 3R for the first false-breakout target when the nearest level is farther away', () => {
     const candles = makeFalseBreakoutCandles()
     candles[23] = { ...candles[23], low: 110 }
     const plan = calculateFalseBreakoutPlan(candles, 'short', { hourlyCandles: makeHourlyBreakoutRange() })
@@ -366,9 +365,9 @@ describe('trend analysis', () => {
     expect(plan!.takeProfits[0].riskMultiple).toBeCloseTo(3, 6)
   })
 
-  it('rejects a false-breakout plan when confirmation candles sweep the level again', () => {
+  it('rejects a false breakout when the breakout wick is larger than its body', () => {
     const candles = makeFalseBreakoutCandles()
-    candles[30] = { ...candles[30], high: 121.4 }
+    candles[28] = { ...candles[28], open: 120.6, high: 121.4, close: 120.7 }
 
     expect(calculateFalseBreakoutPlan(candles, 'short', { hourlyCandles: makeHourlyBreakoutRange() })).toBeNull()
   })
