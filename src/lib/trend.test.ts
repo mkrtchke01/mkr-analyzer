@@ -201,6 +201,31 @@ const makeFifteenMinuteBullishReversal = (): Candle[] => {
   return candles
 }
 
+const makeFastHourlyBullishDivergence = (): Candle[] => {
+  const candles: Candle[] = Array.from({ length: 27 }, (_, index) => ({ time: index * 3600, open: 100, high: 100.4, low: 99.6, close: 100, volume: 100 }))
+  const set = (index: number, open: number, high: number, low: number, close: number) => { candles[index] = { time: index * 3600, open, high, low, close, volume: 150 } }
+
+  // The second, lower low is the current 1h candle, only five candles after the first pivot.
+  set(21, 100, 100.2, 93.5, 94)
+  set(22, 94, 102.5, 93.8, 102)
+  set(23, 102, 102.3, 99.5, 100)
+  set(24, 100, 100.3, 97.5, 98)
+  set(25, 98, 98.3, 95.5, 96)
+  set(26, 96, 96.2, 92.5, 93)
+  return candles
+}
+
+const makeFiveMinuteBullishReclaim = (): Candle[] => {
+  const start = 47 * 3600
+  const candles: Candle[] = Array.from({ length: 32 }, (_, index) => ({ time: start + index * 300, open: 94, high: 94.4, low: 93.6, close: 94, volume: 100 }))
+  const set = (index: number, open: number, high: number, low: number, close: number) => { candles[index] = { time: start + index * 300, open, high, low, close, volume: 150 } }
+
+  set(30, 94, 95.3, 93.8, 95)
+  // The second candle can close below the first one, but not below its own open.
+  set(31, 95, 95.4, 94.5, 95)
+  return candles
+}
+
 const analysis = (timeframe: TrendAnalysis['timeframe'], direction: TrendAnalysis['direction'], strength: number): TrendAnalysis => ({
   timeframe, direction, strength, adx: 30, atr: 1, volumeRatio: 1.2, reasons: [],
 })
@@ -343,17 +368,51 @@ describe('trend analysis', () => {
     expect(plan!.takeProfits[1].price).toBeLessThan(plan!.takeProfits[0].price)
   })
 
-  it('builds a reversal plan only after a 10–40 candle 1h RSI divergence and 15m retest reaction', () => {
+  it('builds a reversal plan after a 1h RSI divergence and a two-candle 5m reclaim', () => {
     const plan = calculateDivergenceReversalPlan({
       hourlyCandles: makeHourlyBullishDivergence(),
       fifteenMinuteCandles: makeFifteenMinuteBullishReversal(),
+      fiveMinuteCandles: makeFiveMinuteBullishReclaim(),
     })
 
     expect(plan).toMatchObject({ setupType: 'bottom-reversal', stop: { side: 'long' } })
     expect(plan!.setupNote).toContain('26 свечей')
-    expect(plan!.setupNote).toContain('15m')
+    expect(plan!.setupNote).toContain('5m отскок')
     expect(plan!.stop.price).toBeLessThan(plan!.stop.entry)
     expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.25)
+  })
+
+  it('accepts a five-candle 1h divergence before the second hourly candle is confirmed', () => {
+    const plan = calculateDivergenceReversalPlan({
+      hourlyCandles: makeFastHourlyBullishDivergence(),
+      fifteenMinuteCandles: makeFifteenMinuteBullishReversal(),
+      fiveMinuteCandles: makeFiveMinuteBullishReclaim(),
+    })
+
+    expect(plan).toMatchObject({ setupType: 'bottom-reversal', stop: { side: 'long' } })
+    expect(plan!.setupNote).toContain('5 свечей')
+  })
+
+  it('accepts a second 5m candle below the first close when it holds its own open', () => {
+    const fiveMinuteCandles = makeFiveMinuteBullishReclaim()
+    fiveMinuteCandles[31] = { ...fiveMinuteCandles[31], open: 94.6, close: 94.8 }
+
+    expect(calculateDivergenceReversalPlan({
+      hourlyCandles: makeHourlyBullishDivergence(),
+      fifteenMinuteCandles: makeFifteenMinuteBullishReversal(),
+      fiveMinuteCandles,
+    })).toMatchObject({ setupType: 'bottom-reversal', stop: { side: 'long' } })
+  })
+
+  it('requires the second 5m candle to close no lower than its own open', () => {
+    const fiveMinuteCandles = makeFiveMinuteBullishReclaim()
+    fiveMinuteCandles[31] = { ...fiveMinuteCandles[31], close: 94.9 }
+
+    expect(calculateDivergenceReversalPlan({
+      hourlyCandles: makeHourlyBullishDivergence(),
+      fifteenMinuteCandles: makeFifteenMinuteBullishReversal(),
+      fiveMinuteCandles,
+    })).toBeNull()
   })
 
   it('does not create a level-breakout plan without a 1h range context', () => {

@@ -48,6 +48,7 @@ export type TradePlan = {
   setupNote: string
   stop: StopProposal
   takeProfits: TakeProfitLevel[]
+  signalKey?: string
 }
 
 export type ManualChartLevel = {
@@ -293,7 +294,9 @@ export type LevelBreakoutContext = {
 
 export type DivergenceReversalContext = {
   hourlyCandles: Candle[]
+  hourlyDivergenceCandles?: Candle[]
   fifteenMinuteCandles: Candle[]
+  fiveMinuteCandles: Candle[]
 }
 
 type HourlyPullback = { side: 'long' | 'short', retracement: number }
@@ -658,12 +661,7 @@ type HourlyRsiDivergence = {
   side: 'long' | 'short'
   firstIndex: number
   secondIndex: number
-}
-
-type FifteenMinuteReversal = {
-  level: number
-  breakoutIndex: number
-  retestIndex: number
+  secondPrice: number
 }
 
 function rsiAtPivot(candles: Candle[], rsiByTime: Map<number, number>, index: number, kind: 'high' | 'low') {
@@ -675,26 +673,35 @@ function rsiAtPivot(candles: Candle[], rsiByTime: Map<number, number>, index: nu
   return kind === 'high' ? Math.max(...values) : Math.min(...values)
 }
 
+function isDivergencePivot(candles: Candle[], index: number, kind: 'high' | 'low') {
+  if (index < 2) return false
+  if (index < candles.length - 1) return isSwingAt(candles, index, kind)
+  const candle = candles[index]
+  return kind === 'high'
+    ? candle.high > candles[index - 1].high && candle.high > candles[index - 2].high
+    : candle.low < candles[index - 1].low && candle.low < candles[index - 2].low
+}
+
 function findHourlyRsiDivergence(candles: Candle[]): HourlyRsiDivergence | undefined {
   const atr = calculateAtr(candles)
   const rsiByTime = new Map(calculateRsi(candles).map((point) => [point.time, point.value]))
   if (!atr || rsiByTime.size === 0) return undefined
 
   for (const [kind, side] of [['low', 'long'], ['high', 'short']] as const) {
-    for (let secondIndex = candles.length - 3; secondIndex >= Math.max(16, candles.length - 40); secondIndex -= 1) {
-      if (!isSwingAt(candles, secondIndex, kind)) continue
+    for (let secondIndex = candles.length - 1; secondIndex >= Math.max(16, candles.length - 40); secondIndex -= 1) {
+      if (!isDivergencePivot(candles, secondIndex, kind)) continue
       const secondRsi = rsiAtPivot(candles, rsiByTime, secondIndex, kind)
       if (secondRsi === undefined) continue
 
-      // 10–40 candles keep the divergence visible and reject adjacent micro-pivots.
-      for (let firstIndex = secondIndex - 10; firstIndex >= Math.max(2, secondIndex - 40); firstIndex -= 1) {
+      // Five to forty 1h candles retain the meaningful swing while admitting fast reversals.
+      for (let firstIndex = secondIndex - 5; firstIndex >= Math.max(2, secondIndex - 40); firstIndex -= 1) {
         if (!isSwingAt(candles, firstIndex, kind)) continue
         const firstRsi = rsiAtPivot(candles, rsiByTime, firstIndex, kind)
         if (firstRsi === undefined) continue
         const hasDivergence = side === 'long'
           ? candles[secondIndex].low < candles[firstIndex].low - atr * 0.25 && secondRsi > firstRsi + 3
           : candles[secondIndex].high > candles[firstIndex].high + atr * 0.25 && secondRsi < firstRsi - 3
-        if (hasDivergence) return { side, firstIndex, secondIndex }
+        if (hasDivergence) return { side, firstIndex, secondIndex, secondPrice: side === 'long' ? candles[secondIndex].low : candles[secondIndex].high }
       }
     }
   }
@@ -702,39 +709,13 @@ function findHourlyRsiDivergence(candles: Candle[]): HourlyRsiDivergence | undef
   return undefined
 }
 
-function findFifteenMinuteReversal(candles: Candle[], side: 'long' | 'short', divergenceTime: number): FifteenMinuteReversal | undefined {
-  const atr = calculateAtr(candles)
-  if (!atr || !hasDirectionalReclaim(candles, side)) return undefined
-
-  const levelKind = side === 'long' ? 'high' : 'low'
-  const lastIndex = candles.length - 1
-  for (let pivotIndex = lastIndex - 4; pivotIndex >= 2; pivotIndex -= 1) {
-    if (candles[pivotIndex].time < divergenceTime || !isSwingAt(candles, pivotIndex, levelKind)) continue
-    const level = levelKind === 'high' ? candles[pivotIndex].high : candles[pivotIndex].low
-    let breakoutIndex = -1
-    for (let index = pivotIndex + 1; index <= lastIndex - 3; index += 1) {
-      const candle = candles[index]
-      const previous = candles[index - 1]
-      const brokeStructure = side === 'long'
-        ? candle.close > level + atr * 0.2 && previous.close <= level + atr * 0.2
-        : candle.close < level - atr * 0.2 && previous.close >= level - atr * 0.2
-      if (brokeStructure) {
-        breakoutIndex = index
-        break
-      }
-    }
-    if (breakoutIndex < 0) continue
-
-    for (let retestIndex = lastIndex - 3; retestIndex > breakoutIndex; retestIndex -= 1) {
-      const candle = candles[retestIndex]
-      const isRetest = side === 'long'
-        ? candle.low <= level + atr * 0.45 && candle.low >= level - atr * 0.6 && candle.close >= level - atr * 0.1
-        : candle.high >= level - atr * 0.45 && candle.high <= level + atr * 0.6 && candle.close <= level + atr * 0.1
-      if (isRetest) return { level, breakoutIndex, retestIndex }
-    }
-  }
-
-  return undefined
+function hasFiveMinuteDivergenceReclaim(candles: Candle[], side: 'long' | 'short', divergenceTime: number) {
+  if (candles.length < 2) return false
+  const [first, second] = candles.slice(-2)
+  if (first.time < divergenceTime) return false
+  return side === 'long'
+    ? first.close > first.open && second.close >= second.open
+    : first.close < first.open && second.close <= second.open
 }
 
 function findFifteenMinuteTargets(candles: Candle[], side: 'long' | 'short', entry: number): number[] {
@@ -774,30 +755,29 @@ function buildDivergenceTargets(entry: number, stopPrice: number, side: 'long' |
 
 export function calculateDivergenceReversalPlan(context?: DivergenceReversalContext): TradePlan | null {
   if (!context) return null
-  const divergence = findHourlyRsiDivergence(context.hourlyCandles)
+  const divergenceCandles = context.hourlyDivergenceCandles ?? context.hourlyCandles
+  const divergence = findHourlyRsiDivergence(divergenceCandles)
   if (!divergence) return null
 
-  const divergenceTime = context.hourlyCandles[divergence.secondIndex].time
-  const reversal = findFifteenMinuteReversal(context.fifteenMinuteCandles, divergence.side, divergenceTime)
-  if (!reversal) return null
+  const divergenceTime = divergenceCandles[divergence.secondIndex].time
+  if (!hasFiveMinuteDivergenceReclaim(context.fiveMinuteCandles, divergence.side, divergenceTime)) return null
 
-  const atr = calculateAtr(context.fifteenMinuteCandles)
-  const entry = context.fifteenMinuteCandles.at(-1)?.close
-  const localStop = findLatestSwingAfter(context.fifteenMinuteCandles, divergence.side === 'long' ? 'low' : 'high', reversal.retestIndex)
-  if (!atr || entry === undefined || !localStop) return null
+  const atr = calculateAtr(context.fiveMinuteCandles)
+  const entry = context.fiveMinuteCandles.at(-1)?.close
+  if (!atr || entry === undefined) return null
 
-  const stopPrice = divergence.side === 'long' ? localStop.price - atr * 0.25 : localStop.price + atr * 0.25
+  const stopPrice = divergence.side === 'long' ? divergence.secondPrice - atr * 0.25 : divergence.secondPrice + atr * 0.25
   const risk = divergence.side === 'long' ? entry - stopPrice : stopPrice - entry
   if (risk <= 0) return null
   const takeProfits = buildDivergenceTargets(entry, stopPrice, divergence.side, context.fifteenMinuteCandles, context.hourlyCandles)
   if (!takeProfits) return null
 
   const divergenceName = divergence.side === 'long' ? 'бычья' : 'медвежья'
-  const structureName = divergence.side === 'long' ? 'обновление прошлого high' : 'обновление прошлого low'
+  const reclaimName = divergence.side === 'long' ? 'первая зелёная, вторая не ниже её открытия' : 'первая красная, вторая не выше её открытия'
   return {
     setupType: divergence.side === 'long' ? 'bottom-reversal' : 'top-reversal',
     setupName: SETUP_META[divergence.side === 'long' ? 'bottom-reversal' : 'top-reversal'].name,
-    setupNote: `1h ${divergenceName} RSI-дивергенция (${divergence.secondIndex - divergence.firstIndex} свечей) · 15m ${structureName} · ретест ${reversal.level.toPrecision(6)} · реакция 2 из 3 свечей`,
+    setupNote: `1h ${divergenceName} RSI-дивергенция (${divergence.secondIndex - divergence.firstIndex} свечей) · 5m отскок: ${reclaimName}`,
     stop: {
       side: divergence.side,
       entry,
@@ -806,6 +786,7 @@ export function calculateDivergenceReversalPlan(context?: DivergenceReversalCont
       distanceAtr: risk / atr,
     },
     takeProfits,
+    signalKey: `${divergenceCandles[divergence.firstIndex].time}:${divergenceTime}`,
   }
 }
 
@@ -889,6 +870,6 @@ export function calculateTradePlans(candles: Candle[], trend: OverallTrend, cont
     calculateBreakoutRetestPlan(candles, trend, context),
     calculateFalseBreakoutPlan(candles, 'long', context),
     calculateFalseBreakoutPlan(candles, 'short', context),
-    context?.fifteenMinuteCandles ? calculateDivergenceReversalPlan(context as DivergenceReversalContext) : null,
+    context?.fifteenMinuteCandles && context.fiveMinuteCandles ? calculateDivergenceReversalPlan(context as DivergenceReversalContext) : null,
   ].filter((plan): plan is TradePlan => Boolean(plan))
 }
