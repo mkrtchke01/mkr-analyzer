@@ -16,6 +16,10 @@ export function getLevelStartX(sourceCoordinate: number | null) {
   return sourceCoordinate ?? 0
 }
 
+export function getLevelEndX(level: Pick<ManualChartLevel, 'endTime' | 'extendRight'> & { endX: number }, paneWidth: number) {
+  return level.extendRight ? paneWidth : level.endX
+}
+
 class ChartLevelsRenderer implements ISeriesPrimitivePaneRenderer {
   private levels: RenderedLevel[] = []
 
@@ -27,17 +31,19 @@ class ChartLevelsRenderer implements ISeriesPrimitivePaneRenderer {
     target.useBitmapCoordinateSpace(({ context, bitmapSize, horizontalPixelRatio, verticalPixelRatio }) => {
       context.save()
       this.levels.forEach((level) => {
+        const endX = getLevelEndX(level, bitmapSize.width / horizontalPixelRatio)
         context.beginPath()
         context.strokeStyle = level.color
         context.lineWidth = level.lineWidth * verticalPixelRatio
         context.setLineDash(level.dashed ? [6 * horizontalPixelRatio, 4 * horizontalPixelRatio] : [])
         context.moveTo(level.x * horizontalPixelRatio, level.y * verticalPixelRatio)
-        context.lineTo(level.endX * horizontalPixelRatio, level.endY * verticalPixelRatio)
+        context.lineTo(endX * horizontalPixelRatio, level.endY * verticalPixelRatio)
         context.stroke()
         if (level.label) {
+          const labelX = level.extendRight ? level.x + 6 : endX + 6
           context.fillStyle = level.color
           context.font = `${10 * verticalPixelRatio}px "DM Mono", monospace`
-          context.fillText(level.label, (level.endX + 6) * horizontalPixelRatio, (level.endY - 5) * verticalPixelRatio)
+          context.fillText(level.label, labelX * horizontalPixelRatio, (level.endY - 5) * verticalPixelRatio)
         }
       })
       context.restore()

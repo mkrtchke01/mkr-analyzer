@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CrosshairMode, type Time } from 'lightweight-charts'
-import { enableInitialVerticalPanning, fitChartHistory, focusChartOnTime, freeCrosshairOptions, manualLevelFromChartPoint, resetPriceScaleForNewCandles } from './PriceChart'
+import { enableInitialVerticalPanning, entryLevelFromTradePlan, fitChartHistory, focusChartOnTime, freeCrosshairOptions, manualLevelFromChartPoint, resetPriceScaleForNewCandles } from './PriceChart'
 
 describe('PriceChart options', () => {
   it('allows vertical panning as soon as the chart opens', () => {
@@ -30,6 +30,25 @@ describe('PriceChart options', () => {
       endPrice: 64_059.6,
       endTime: 1_720_000_000,
     })
+  })
+
+  it('draws an entry line from the signal candle through the right chart edge', () => {
+    expect(entryLevelFromTradePlan({
+      setupType: 'breakout-retest',
+      setupName: 'Пробой + ретест',
+      setupNote: 'Тест',
+      entryTime: 1_720_000_300,
+      stop: { side: 'long', entry: 100 },
+      takeProfits: [],
+    }, '15m')).toEqual(expect.objectContaining({
+      time: 1_719_999_900,
+      endTime: 1_719_999_900,
+      price: 100,
+      endPrice: 100,
+      label: 'BR ENTRY LONG',
+      extendRight: true,
+      dashed: false,
+    }))
   })
 
   it('keeps the crosshair freely under the cursor instead of snapping it to candles', () => {

@@ -27,6 +27,7 @@ export function tradePlanFromSavedSignal(signal: SavedSignal): TradePlan {
     setupType: signal.setupType,
     setupName: SETUP_META[signal.setupType].name,
     setupNote: 'Сигнал зафиксирован со снимком. Цели не пересчитываются до завершения сделки.',
+    entryTime: Math.floor(new Date(signal.detectedAt).getTime() / 1000),
     stop: {
       side: signal.side,
       entry: signal.entryPrice,

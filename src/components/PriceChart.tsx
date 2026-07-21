@@ -71,6 +71,25 @@ export function manualLevelFromChartPoint(price: number, time: Time): Omit<Manua
   return { price, time: Number(time), endPrice: price, endTime: Number(time) }
 }
 
+const timeframeSeconds: Record<Timeframe, number> = { '5m': 300, '15m': 900, '1h': 3600, '4h': 14_400, '1d': 86_400 }
+
+export function entryLevelFromTradePlan(tradePlan: TradePlan, timeframe: Timeframe): ManualChartLevel | undefined {
+  if (tradePlan.entryTime === undefined) return undefined
+  const startTime = Math.floor(tradePlan.entryTime / timeframeSeconds[timeframe]) * timeframeSeconds[timeframe]
+  const setupName = SETUP_META[tradePlan.setupType].shortName
+  return {
+    id: `entry-${tradePlan.setupType}-${tradePlan.stop.side}-${tradePlan.entryTime}`,
+    price: tradePlan.stop.entry,
+    time: startTime,
+    endPrice: tradePlan.stop.entry,
+    endTime: startTime,
+    color: '#6bd5ff',
+    label: `${setupName} ENTRY ${tradePlan.stop.side.toUpperCase()}`,
+    dashed: false,
+    extendRight: true,
+  }
+}
+
 export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrecision, tradePlans, manualLevels, rsiDivergences, riskRewards, focusTime, drawingMode, drawingAnchor, onDrawingPoint, onUpdateRiskReward, onStatusChange, onPriceChange }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -175,8 +194,9 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
     const preview = drawingMode === 'level' && drawingAnchor && drawingPreview
       ? [{ id: 'drawing-preview', price: drawingAnchor.price, time: drawingAnchor.time, endPrice: drawingPreview.price, endTime: drawingPreview.time }]
       : []
-    levelPrimitiveRef.current?.setLevels([...manualLevels, ...preview])
-  }, [drawingAnchor, drawingMode, drawingPreview, manualLevels])
+    const entries = tradePlans.map((tradePlan) => entryLevelFromTradePlan(tradePlan, timeframe)).filter((level): level is ManualChartLevel => Boolean(level))
+    levelPrimitiveRef.current?.setLevels([...manualLevels, ...entries, ...preview])
+  }, [drawingAnchor, drawingMode, drawingPreview, manualLevels, timeframe, tradePlans])
 
   useEffect(() => {
     const chart = chartRef.current
