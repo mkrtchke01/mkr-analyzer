@@ -144,6 +144,16 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       if (stopPrice === undefined) return
       const { stop, takeProfits } = tradePlan
       const setupName = SETUP_META[tradePlan.setupType].shortName
+      if (tradePlan.triggerLevel) {
+        tradeLinesRef.current.push(series.createPriceLine({
+          price: tradePlan.triggerLevel.price,
+          color: '#f2c15d',
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: tradePlan.triggerLevel.label,
+        }))
+      }
       if (tradePlan.entryTime !== undefined) {
         tradeLinesRef.current.push(series.createPriceLine({
           price: stop.entry,

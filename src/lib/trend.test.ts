@@ -492,6 +492,7 @@ describe('trend analysis', () => {
     })
 
     expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'long' } })
+    expect(plan!.triggerLevel).toMatchObject({ label: 'BR УРОВЕНЬ 15m' })
     expect(plan!.takeProfits).toHaveLength(2)
     expect(plan!.takeProfits[0].riskMultiple).toBeLessThanOrEqual(3)
     expect(plan!.takeProfits[1].riskMultiple).toBe(6)
@@ -503,16 +504,28 @@ describe('trend analysis', () => {
     expect(selectPrimaryRetestLevel([{ level: 1_928, side: 'short' as const }, { level: 1_941, side: 'short' as const }], 'short')?.level).toBe(1_941)
   })
 
-  it('requires a 15m level to have formed from at least two touches before its breakout', () => {
+  it('counts the required three 15m touches before a breakout', () => {
     const fifteenMinuteCandles = makeHourlyRetestRange()
     expect(countPreBreakoutLevelTouches(fifteenMinuteCandles, 70, 'high', 2)).toBe(2)
     fifteenMinuteCandles[69] = { ...fifteenMinuteCandles[69], high: 103.8 }
     expect(countPreBreakoutLevelTouches(fifteenMinuteCandles, 70, 'high', 2)).toBe(1)
   })
 
+  it('rejects a sideways drift through the level without an impulse candle', () => {
+    const candles = makeBreakoutRetestCandles()
+    candles[18] = { ...candles[18], open: 105.9, close: 106 }
+    candles[19] = { ...candles[19], open: 106.45, close: 106.5 }
+    candles[20] = { ...candles[20], open: 106.75, close: 106.8 }
+
+    expect(calculateBreakoutRetestPlan(candles, 'strong-long', {
+      hourlyCandles: makeHourlyRetestRange(),
+      fifteenMinuteCandles: makeHourlyRetestRange(),
+    })).toBeNull()
+  })
+
   it('uses the nearer prior 15m high instead of 3R for the first breakout-retest target', () => {
     const fifteenMinuteCandles = makeHourlyRetestRange()
-    fifteenMinuteCandles[90] = { time: fifteenMinuteCandles[90].time, open: 106, high: 109, low: 105, close: 106, volume: 150 }
+    fifteenMinuteCandles[20] = { time: fifteenMinuteCandles[20].time, open: 106, high: 109, low: 105, close: 106, volume: 150 }
     const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'strong-long', {
       hourlyCandles: makeHourlyRetestRange(),
       fifteenMinuteCandles,

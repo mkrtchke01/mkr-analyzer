@@ -80,6 +80,7 @@ export type TradePlan = {
   setupNote: string
   stop: StopProposal
   takeProfits: TakeProfitLevel[]
+  triggerLevel?: { price: number, label: string }
   signalKey?: string
   entryTime?: number
   signalStrength?: SignalStrength
@@ -122,6 +123,8 @@ const BREAKOUT_RETEST_STOP_BUFFER_ATR = 0.4
 const BREAKOUT_RETEST_MAX_ENTRY_DISTANCE_ATR = 0.75
 const BREAKOUT_RETEST_MAX_RETEST_AGE_CANDLES = 1
 const BREAKOUT_RETEST_LEVEL_TOUCH_ATR = 0.15
+const BREAKOUT_RETEST_MIN_LEVEL_TOUCHES = 3
+const BREAKOUT_RETEST_MIN_BREAKOUT_BODY_ATR = 0.7
 
 const clamp = (value: number, min = 0, max = 100) => Math.min(Math.max(value, min), max)
 
@@ -551,7 +554,7 @@ function findRecentFifteenMinuteRetestLevels(candles: Candle[]): RetestLevel[] {
       const touchesBeforeBreakout = countPreBreakoutLevelTouches(candles, index, kind, atr)
       // A breakout level must be visible before the breakout. Counting later candles
       // here turns an arbitrary pullback pivot into a false "level".
-      if (touchesBeforeBreakout < 2) continue
+      if (touchesBeforeBreakout < BREAKOUT_RETEST_MIN_LEVEL_TOUCHES) continue
       levels.push({
         side,
         level,
@@ -922,10 +925,12 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
     for (let index = lastIndex - 1; index >= Math.max(1, lastIndex - 72); index -= 1) {
       const candle = candles[index]
       const previous = candles[index - 1]
+      const body = Math.abs(candle.close - candle.open)
       const brokeLevel = side === 'long'
-        ? candle.close > level.level + atr * 0.2 && previous.close <= level.level + atr * 0.2
-        : candle.close < level.level - atr * 0.2 && previous.close >= level.level - atr * 0.2
-      if (candle.time >= level.endTime && brokeLevel) {
+        ? candle.close > level.level + atr * 0.35 && previous.close <= level.level + atr * 0.1 && candle.close > candle.open
+        : candle.close < level.level - atr * 0.35 && previous.close >= level.level - atr * 0.1 && candle.close < candle.open
+      const isImpulse = body >= atr * BREAKOUT_RETEST_MIN_BREAKOUT_BODY_ATR
+      if (candle.time >= level.endTime && brokeLevel && isImpulse) {
         breakoutIndex = index
         break
       }
@@ -971,6 +976,7 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
       setupType: 'breakout-retest',
       setupName: SETUP_META['breakout-retest'].name,
       setupNote: `Пробой 15m уровня ${level.level.toPrecision(6)} · свежий 5m отскок от экстремума ретеста (не дальше ${BREAKOUT_RETEST_MAX_ENTRY_DISTANCE_ATR} ATR) · TP1: ближайшая из 3R и прошлого 15m экстремума · TP2 6R`,
+      triggerLevel: { price: level.level, label: 'BR УРОВЕНЬ 15m' },
       stop: {
         side,
         entry: current.close,
