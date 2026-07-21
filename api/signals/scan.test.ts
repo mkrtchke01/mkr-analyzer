@@ -17,7 +17,7 @@ vi.mock('../../src/lib/signalSnapshot.js', () => ({
   createSignalSnapshot: vi.fn(() => '<svg />'),
 }))
 
-const { persistPlan } = await import('./scan')
+const { persistPlan, selectStrongestPlan } = await import('./scan')
 
 const plan: TradePlan = {
   setupType: 'breakout-retest',
@@ -46,5 +46,20 @@ describe('signal persistence', () => {
     expect(insertPayload).toMatchObject({ symbol: 'AXTIUSDT', snapshot_path: null, setup_type: 'breakout-retest' })
     expect(mocks.supabaseRequest.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false)
     expect(mocks.uploadSnapshot).toHaveBeenCalledOnce()
+  })
+
+  it('treats the database open-symbol lock as an already existing setup', async () => {
+    mocks.supabaseRequest.mockRejectedValueOnce(new Error('Supabase request failed (409): mkr_signals_one_open_symbol_idx'))
+
+    await expect(persistPlan('AXTIUSDT', plan, [], [candle])).resolves.toBe(false)
+
+    expect(mocks.uploadSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('keeps only the highest-priority setup for a symbol', () => {
+    const reclaim = { ...plan, setupType: 'trend-reclaim' as const, takeProfits: [{ id: 'TP1' as const, price: 104, share: 100, riskMultiple: 4 }] }
+    const reversal = { ...plan, setupType: 'bottom-reversal' as const, takeProfits: [{ id: 'TP1' as const, price: 108, share: 100, riskMultiple: 8 }] }
+
+    expect(selectStrongestPlan([reclaim, reversal, plan])).toBe(plan)
   })
 })

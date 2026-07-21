@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { getCandles, getMarkets, type Candle, type Timeframe } from '../../src/lib/bybit.js'
 import { createSignalSnapshot } from '../../src/lib/signalSnapshot.js'
 import { evaluateSignalCandle, type ManagedSignal } from '../../src/lib/signalLifecycle.js'
-import { analyzeTrend, calculateTradePlans, getOverallTrend, type TradePlan, type TrendAnalysis } from '../../src/lib/trend.js'
+import { analyzeTrend, calculateTradePlans, getOverallTrend, type SetupType, type TradePlan, type TrendAnalysis } from '../../src/lib/trend.js'
 import { isAuthorizedCronRequest, supabaseRequest, uploadSnapshot } from '../_lib/supabase.js'
 
 const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
@@ -30,6 +30,28 @@ type StoredSignal = {
 type ScannerRun = { id: string }
 type ScanMarketResult = { plansFound: number, created: number }
 type ScannerErrorPhase = 'monitor' | 'market' | 'persistence' | 'run'
+
+const SETUP_PRIORITY: Record<SetupType, number> = {
+  'breakout-retest': 6,
+  'level-breakout': 5,
+  'false-breakout': 4,
+  'trend-reclaim': 3,
+  'bottom-reversal': 2,
+  'top-reversal': 2,
+  consensus: 1,
+}
+
+export function selectStrongestPlan(plans: TradePlan[]): TradePlan | undefined {
+  return plans.reduce<TradePlan | undefined>((strongest, candidate) => {
+    if (!strongest) return candidate
+    const strongestPriority = SETUP_PRIORITY[strongest.setupType]
+    const candidatePriority = SETUP_PRIORITY[candidate.setupType]
+    if (candidatePriority !== strongestPriority) return candidatePriority > strongestPriority ? candidate : strongest
+    const strongestTarget = Math.max(...strongest.takeProfits.map((target) => target.riskMultiple))
+    const candidateTarget = Math.max(...candidate.takeProfits.map((target) => target.riskMultiple))
+    return candidateTarget > strongestTarget ? candidate : strongest
+  }, undefined)
+}
 
 const runWithConcurrency = async <T>(items: T[], task: (item: T) => Promise<void>) => {
   let cursor = 0
@@ -168,11 +190,19 @@ export async function persistPlan(symbol: string, plan: TradePlan, analyses: Tre
     // Сигнал важнее картинки: сбой Storage не должен делать валидный сетап невидимым.
     snapshot_path: null,
   }
-  const created = await supabaseRequest<Array<{ id: string }>>('/rest/v1/mkr_signals?on_conflict=fingerprint', {
-    method: 'POST',
-    headers: { Prefer: 'resolution=ignore-duplicates,return=representation' },
-    body: JSON.stringify(payload),
-  })
+  let created: Array<{ id: string }>
+  try {
+    created = await supabaseRequest<Array<{ id: string }>>('/rest/v1/mkr_signals?on_conflict=fingerprint', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=ignore-duplicates,return=representation' },
+      body: JSON.stringify(payload),
+    })
+  } catch (error) {
+    // A concurrent scanner may have already opened a plan for this symbol.
+    // The database constraint is the final guard; this is an expected no-op.
+    if (errorMessage(error).includes('mkr_signals_one_open_symbol_idx')) return false
+    throw error
+  }
   if (!created.length) return false
 
   try {
@@ -190,7 +220,8 @@ export async function persistPlan(symbol: string, plan: TradePlan, analyses: Tre
   return true
 }
 
-async function scanMarket(symbol: string, runId?: string): Promise<ScanMarketResult> {
+async function scanMarket(symbol: string, openSymbols: ReadonlySet<string>, runId?: string): Promise<ScanMarketResult> {
+  if (openSymbols.has(symbol)) return { plansFound: 0, created: 0 }
   const multiTimeframeCandles = await Promise.all(ANALYSIS_TIMEFRAMES.map((timeframe) => getCandles(symbol, timeframe, timeframe === '5m' ? 360 : 180)))
   const confirmed = multiTimeframeCandles.map(closedCandles)
   const analyses = confirmed.map((candles, index) => analyzeTrend(candles, ANALYSIS_TIMEFRAMES[index]))
@@ -203,11 +234,9 @@ async function scanMarket(symbol: string, runId?: string): Promise<ScanMarketRes
     fifteenMinuteCandles: confirmed[2],
     fiveMinuteCandles: entryCandles,
   })
-  let created = 0
-  for (const plan of plans) {
-    if (await persistPlan(symbol, plan, analyses, entryCandles, runId)) created += 1
-  }
-  return { plansFound: plans.length, created }
+  const strongestPlan = selectStrongestPlan(plans)
+  if (!strongestPlan) return { plansFound: 0, created: 0 }
+  return { plansFound: 1, created: await persistPlan(symbol, strongestPlan, analyses, entryCandles, runId) ? 1 : 0 }
 }
 
 export default async function handler(request: any, response: any) {
@@ -224,6 +253,7 @@ export default async function handler(request: any, response: any) {
     runId = startedRuns[0]?.id
     const storedOpenSignals = await supabaseRequest<StoredSignal[]>('/rest/v1/mkr_signals?select=*&status=in.(active,tp1,tp2)')
     const openSignals = storedOpenSignals.filter((signal) => (signal.status === 'tp1' && signal.tp2_price !== null) || (signal.status === 'tp2' && signal.tp3_price !== null) || signal.status === 'active')
+    const openSymbols = new Set(openSignals.map((signal) => signal.symbol))
     let monitored = 0
     let monitorErrors = 0
     await runWithConcurrency(openSignals, async (signal) => {
@@ -242,7 +272,7 @@ export default async function handler(request: any, response: any) {
     let marketErrors = 0
     await runWithConcurrency(markets, async (market) => {
       try {
-        const result = await scanMarket(market.symbol, runId)
+        const result = await scanMarket(market.symbol, openSymbols, runId)
         plansFound += result.plansFound
         created += result.created
       } catch (error) {
