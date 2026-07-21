@@ -353,16 +353,24 @@ describe('trend analysis', () => {
     expect(plan!.setupNote).toContain('5m реакция 3 свечи')
     expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
     expect(plan!.stop.distanceAtr).toBeLessThanOrEqual(2.5)
-    expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.5)
+    expect(plan!.takeProfits[0].riskMultiple).toBeCloseTo(3, 6)
+    expect(plan!.triggerLevel).toMatchObject({ label: 'FB УРОВЕНЬ 1h' })
   })
 
-  it('uses 3R for the first false-breakout target when the nearest level is farther away', () => {
+  it('uses 3R for the first false-breakout target regardless of the nearest level', () => {
     const candles = makeFalseBreakoutCandles()
     candles[23] = { ...candles[23], low: 110 }
     const plan = calculateFalseBreakoutPlan(candles, 'short', { hourlyCandles: makeHourlyBreakoutRange() })
 
     expect(plan).not.toBeNull()
     expect(plan!.takeProfits[0].riskMultiple).toBeCloseTo(3, 6)
+  })
+
+  it('rejects a false-breakout plan when confirmation candles sweep the level again', () => {
+    const candles = makeFalseBreakoutCandles()
+    candles[30] = { ...candles[30], high: 121.4 }
+
+    expect(calculateFalseBreakoutPlan(candles, 'short', { hourlyCandles: makeHourlyBreakoutRange() })).toBeNull()
   })
 
   it('mirrors the false-breakout plan for a sweep below 1h support', () => {
