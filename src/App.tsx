@@ -28,7 +28,7 @@ const STRATEGY_FILTERS: Array<{ id: StrategyFilterId, shortName: string, name: s
   { id: 'breakout-retest', shortName: 'BR', name: 'Пробой + ретест', setupTypes: ['breakout-retest'] },
   { id: 'level-breakout', shortName: 'LB', name: 'Пробой уровня', setupTypes: ['level-breakout'] },
   { id: 'false-breakout', shortName: 'FB', name: 'Ложный пробой', setupTypes: ['false-breakout'] },
-  { id: 'trend-reclaim', shortName: 'TR', name: 'Trend Reclaim', setupTypes: ['trend-reclaim'] },
+  { id: 'trend-reclaim', shortName: 'TR', name: 'Возврат к тренду', setupTypes: ['trend-reclaim'] },
   { id: 'divergence', shortName: 'DV', name: 'RSI-дивергенция', setupTypes: ['bottom-reversal', 'top-reversal'] },
 ]
 

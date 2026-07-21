@@ -6,14 +6,14 @@ export type SetupType = 'trend-reclaim' | 'level-breakout' | 'false-breakout' | 
 export type SetupSignal = { type: SetupType; side: 'long' | 'short' }
 
 export const SETUP_META: Record<SetupType, { shortName: string; name: string }> = {
-  'trend-reclaim': { shortName: 'TR', name: 'Trend Reclaim' },
+  'trend-reclaim': { shortName: 'TR', name: 'Возврат к тренду' },
   'level-breakout': { shortName: 'LB', name: 'Пробой уровня' },
   'false-breakout': { shortName: 'FB', name: 'Ложный пробой' },
   'bottom-reversal': { shortName: 'RL', name: 'Разворот от дна' },
   'top-reversal': { shortName: 'RH', name: 'Разворот от вершины' },
   'breakout-retest': { shortName: 'BR', name: 'Пробой + ретест' },
   // Оставляем метаданные только для уже сохранённых исторических сигналов CS.
-  consensus: { shortName: 'CS', name: 'Directional Consensus' },
+  consensus: { shortName: 'CS', name: 'Согласованный тренд' },
 }
 
 export type TrendAnalysis = {
