@@ -84,6 +84,7 @@ const SLOW_EMA = 55
 const PERIOD = 14
 const CONTEXT_MIN_STRENGTH = 35
 const STRONG_OPPOSING_STRENGTH = 55
+const BREAKOUT_RETEST_STOP_BUFFER_ATR = 0.4
 
 const clamp = (value: number, min = 0, max = 100) => Math.min(Math.max(value, min), max)
 
@@ -782,16 +783,18 @@ function buildBreakoutRetestTargets(entry: number, stopPrice: number, side: 'lon
   if (risk <= 0) return undefined
 
   const direction = side === 'long' ? 1 : -1
-  const firstTarget = entry + direction * risk * 3
-  const secondTarget = findFifteenMinuteTargets(fifteenMinuteCandles, side, entry)
-    .find((price) => side === 'long' ? price >= entry + direction * risk * 4 : price <= entry + direction * risk * 4)
-  const prices = secondTarget === undefined ? [firstTarget] : [firstTarget, secondTarget]
-  const shares = prices.length === 2 ? [50, 50] : [100]
+  const targetAtThreeR = entry + direction * risk * 3
+  const priorFifteenMinuteExtreme = findFifteenMinuteTargets(fifteenMinuteCandles, side, entry).at(0)
+  const priorExtremeIsCloser = priorFifteenMinuteExtreme !== undefined && (side === 'long'
+    ? priorFifteenMinuteExtreme < targetAtThreeR
+    : priorFifteenMinuteExtreme > targetAtThreeR)
+  const firstTarget = priorExtremeIsCloser ? priorFifteenMinuteExtreme : targetAtThreeR
+  const secondTarget = entry + direction * risk * 6
 
-  return prices.map((price, index) => ({
+  return [firstTarget, secondTarget].map((price, index) => ({
     id: `TP${index + 1}` as TakeProfitLevel['id'],
     price,
-    share: shares[index],
+    share: 50,
     riskMultiple: (side === 'long' ? price - entry : entry - price) / risk,
   }))
 }
@@ -881,7 +884,8 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
     if (!hasReversal || !remainsBelowLocalExtreme) continue
 
     const retest = candles[retestIndex]
-    const stopPrice = side === 'long' ? retest.low - atr * 0.25 : retest.high + atr * 0.25
+    const stopBase = side === 'long' ? Math.min(retest.low, level.level) : Math.max(retest.high, level.level)
+    const stopPrice = side === 'long' ? stopBase - atr * BREAKOUT_RETEST_STOP_BUFFER_ATR : stopBase + atr * BREAKOUT_RETEST_STOP_BUFFER_ATR
     const risk = side === 'long' ? current.close - stopPrice : stopPrice - current.close
     if (risk <= 0) continue
 
@@ -891,7 +895,7 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
     return {
       setupType: 'breakout-retest',
       setupName: SETUP_META['breakout-retest'].name,
-      setupNote: `Пробой 15m уровня ${level.level.toPrecision(6)} · 5m ретест с реакцией, до пробоя локального экстремума · TP1 3R, TP2 прошлый 15m уровень от 4R`,
+      setupNote: `Пробой 15m уровня ${level.level.toPrecision(6)} · 5m ретест с реакцией, до пробоя локального экстремума · TP1: ближайшая из 3R и прошлого 15m экстремума · TP2 6R`,
       stop: {
         side,
         entry: current.close,

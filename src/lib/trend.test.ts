@@ -439,7 +439,7 @@ describe('trend analysis', () => {
     expect(plan).toBeNull()
   })
 
-  it('keeps a qualified 15m breakout-retest with 3R TP1 and a structural TP2', () => {
+  it('keeps a qualified 15m breakout-retest with TP1 at 3R or the nearer prior extreme and TP2 at 6R', () => {
     const fifteenMinuteCandles = makeHourlyRetestRange()
     fifteenMinuteCandles[50] = { ...fifteenMinuteCandles[50], high: 120 }
     const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'strong-long', {
@@ -449,8 +449,22 @@ describe('trend analysis', () => {
 
     expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'long' } })
     expect(plan!.takeProfits).toHaveLength(2)
-    expect(plan!.takeProfits[0].riskMultiple).toBe(3)
-    expect(plan!.takeProfits[1].riskMultiple).toBeGreaterThanOrEqual(4)
+    expect(plan!.takeProfits[0].riskMultiple).toBeLessThanOrEqual(3)
+    expect(plan!.takeProfits[1].riskMultiple).toBe(6)
+    expect(plan!.stop.price).toBeLessThan(104.8)
+  })
+
+  it('uses the nearer prior 15m high instead of 3R for the first breakout-retest target', () => {
+    const fifteenMinuteCandles = makeHourlyRetestRange()
+    fifteenMinuteCandles[90] = { time: fifteenMinuteCandles[90].time, open: 106, high: 109, low: 105, close: 106, volume: 150 }
+    const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'strong-long', {
+      hourlyCandles: makeHourlyRetestRange(),
+      fifteenMinuteCandles,
+    })
+
+    expect(plan!.takeProfits[0]).toMatchObject({ id: 'TP1', price: 109, share: 50 })
+    expect(plan!.takeProfits[0].riskMultiple).toBeLessThan(3)
+    expect(plan!.takeProfits[1].riskMultiple).toBe(6)
   })
 
   it('rejects a short breakout-retest without a confirmed multi-timeframe trend', () => {
