@@ -7,10 +7,13 @@ type TrendPanelProps = {
   analyses: TrendAnalysis[]
   loading: boolean
   error: boolean
-  tradePlans: TradePlan[]
   marketInfo: MarketInfoSignal[]
-  availableBalance: number
   onShowMarketInfo: (signal: MarketInfoSignal) => void
+}
+
+type TradePlansProps = {
+  tradePlans: TradePlan[]
+  availableBalance: number
 }
 
 const timeframeRole: Record<TrendAnalysis['timeframe'], string> = {
@@ -39,7 +42,27 @@ function formatQuantity(value: number) {
   return value.toFixed(6)
 }
 
-export default function TrendPanel({ analyses, loading, error, tradePlans, marketInfo, availableBalance, onShowMarketInfo }: TrendPanelProps) {
+export function TradePlans({ tradePlans, availableBalance }: TradePlansProps) {
+  if (!tradePlans.length) return null
+
+  return <section className="trade-plans" aria-label="План сделки">
+    {tradePlans.map((tradePlan) => {
+      const sizing = tradePlan.stop.price ? calculatePositionSizing(tradePlan.stop.entry, tradePlan.stop.price, availableBalance) : undefined
+      return <div className={`trade-plan ${tradePlan.stop.side}`} key={tradePlan.setupType}>
+        {tradePlan.stop.price ? <>
+          <b className="setup-plan-name">{tradePlan.setupName} · {tradePlan.stop.side.toUpperCase()}</b>
+          <span>ENTRY {formatPrice(tradePlan.stop.entry)}</span>
+          <strong>STOP {formatPrice(tradePlan.stop.price)} · {tradePlan.stop.distancePercent!.toFixed(2)}%</strong>
+          {tradePlan.takeProfits.map((target) => <span key={target.id}>{target.id} {formatPrice(target.price)} · {target.riskMultiple}R · {target.share}%</span>)}
+          {sizing && <span className="position-sizing">РИСК ${sizing.riskAmount.toFixed(2)} · ОРДЕР ${sizing.notional.toFixed(2)} · {sizing.leverage}× · МАРЖА ${sizing.margin.toFixed(2)} · QTY {formatQuantity(sizing.quantity)}</span>}
+          <span className="pullback">{tradePlan.setupNote}</span>
+        </> : <span>{tradePlan.stop.reason}</span>}
+      </div>
+    })}
+  </section>
+}
+
+export default function TrendPanel({ analyses, loading, error, marketInfo, onShowMarketInfo }: TrendPanelProps) {
   const overall = getOverallTrend(analyses)
 
   return (
@@ -75,18 +98,6 @@ export default function TrendPanel({ analyses, loading, error, tradePlans, marke
             ? <ul>{marketInfo.map((signal) => <li className={signal.side} key={`${signal.type}-${signal.timeframe}`}><span>{marketInfoText(signal)}</span>{(signal.divergence || signal.level || signal.correction) && <button onClick={() => onShowMarketInfo(signal)}>Показать</button>}</li>)}</ul>
             : <p>Особых рыночных событий на 15m, 1h и 4h не обнаружено</p>}
         </section>
-        {tradePlans.map((tradePlan) => {
-          const sizing = tradePlan.stop.price ? calculatePositionSizing(tradePlan.stop.entry, tradePlan.stop.price, availableBalance) : undefined
-          return <div className={`trade-plan ${tradePlan.stop.side}`} key={tradePlan.setupType}>
-          {tradePlan.stop.price ? <>
-            <b className="setup-plan-name">{tradePlan.setupName} · {tradePlan.stop.side.toUpperCase()}</b>
-            <span>ENTRY {formatPrice(tradePlan.stop.entry)}</span>
-            <strong>STOP {formatPrice(tradePlan.stop.price)} · {tradePlan.stop.distancePercent!.toFixed(2)}%</strong>
-            {tradePlan.takeProfits.map((target) => <span key={target.id}>{target.id} {formatPrice(target.price)} · {target.riskMultiple}R · {target.share}%</span>)}
-            {sizing && <span className="position-sizing">РИСК ${sizing.riskAmount.toFixed(2)} · ОРДЕР ${sizing.notional.toFixed(2)} · {sizing.leverage}× · МАРЖА ${sizing.margin.toFixed(2)} · QTY {formatQuantity(sizing.quantity)}</span>}
-            <span className="pullback">{tradePlan.setupNote}</span>
-          </> : <span>{tradePlan.stop.reason}</span>}
-        </div>})}
       </>}
     </section>
   )
