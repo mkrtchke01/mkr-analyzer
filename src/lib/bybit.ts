@@ -125,6 +125,19 @@ export function sortMarketsByTrend(markets: Market[], strengths: Record<string, 
   })
 }
 
+export function sortMarketsBySetupStrength(markets: Market[], strengths: Record<string, number | null | undefined>, direction: 'asc' | 'desc'): Market[] {
+  return [...markets].sort((left, right) => {
+    const leftStrength = strengths[left.symbol]
+    const rightStrength = strengths[right.symbol]
+
+    if (leftStrength === null || leftStrength === undefined) return rightStrength === null || rightStrength === undefined ? 0 : 1
+    if (rightStrength === null || rightStrength === undefined) return -1
+
+    const difference = leftStrength - rightStrength
+    return direction === 'desc' ? -difference : difference
+  })
+}
+
 export function getNextMarketSymbol(markets: Market[], currentSymbol: string): string | undefined {
   if (!markets.length) return undefined
 

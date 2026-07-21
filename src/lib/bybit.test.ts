@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { filterMarketList, filterMarkets, formatPrice, getCandles, getMarkets, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, MARKET_LIST_LIMIT, pricePrecisionFromTickSize, sortMarketsByTrend, timeframeToBybitInterval } from './bybit'
+import { filterMarketList, filterMarkets, formatPrice, getCandles, getMarkets, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, MARKET_LIST_LIMIT, pricePrecisionFromTickSize, sortMarketsBySetupStrength, sortMarketsByTrend, timeframeToBybitInterval } from './bybit'
 
 describe('Bybit market data conversion', () => {
   it('converts reverse-ordered REST klines into chronological candles', () => {
@@ -110,6 +110,18 @@ describe('Bybit market data conversion', () => {
 
     expect(sortMarketsByTrend(markets, strengths, 'desc').map((market) => market.symbol)).toEqual(['ETHUSDT', 'BTCUSDT', 'SOLUSDT'])
     expect(sortMarketsByTrend(markets, strengths, 'asc').map((market) => market.symbol)).toEqual(['SOLUSDT', 'BTCUSDT', 'ETHUSDT'])
+  })
+
+  it('sorts setup markets by their signal strength and keeps missing values last', () => {
+    const markets = [
+      { symbol: 'BTCUSDT', price: 1, change: 0, turnover: 1 },
+      { symbol: 'ETHUSDT', price: 1, change: 0, turnover: 1 },
+      { symbol: 'SOLUSDT', price: 1, change: 0, turnover: 1 },
+    ]
+    const strengths = { BTCUSDT: 5, ETHUSDT: 9, SOLUSDT: null }
+
+    expect(sortMarketsBySetupStrength(markets, strengths, 'desc').map((market) => market.symbol)).toEqual(['ETHUSDT', 'BTCUSDT', 'SOLUSDT'])
+    expect(sortMarketsBySetupStrength(markets, strengths, 'asc').map((market) => market.symbol)).toEqual(['BTCUSDT', 'ETHUSDT', 'SOLUSDT'])
   })
 
   it('reports the Bybit status code when loading markets fails', async () => {

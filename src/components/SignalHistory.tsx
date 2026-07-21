@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { formatPrice } from '../lib/bybit'
 import { getSavedSignals, getStrategyStats, type SavedSignal, type SignalState } from '../lib/signals'
 import { calculatePnlUsd } from '../lib/positionSizing'
@@ -23,6 +23,7 @@ const statusText: Record<SavedSignal['status'], string> = {
 }
 
 type HistoryTab = SignalState | 'statistics'
+type StrengthSort = 'none' | 'asc' | 'desc'
 
 function formatTimestamp(value: string) {
   return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
@@ -40,7 +41,17 @@ export default function SignalHistory({ openSignals, onClose, onSelectSymbol }: 
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<SavedSignal | null>(null)
   const [strategyStats, setStrategyStats] = useState<StrategyStats[]>([])
-  const signals = state === 'open' ? openSignals : closedSignals
+  const [strengthSort, setStrengthSort] = useState<StrengthSort>('none')
+  const signals = useMemo(() => {
+    const source = state === 'open' ? openSignals : closedSignals
+    if (strengthSort === 'none') return source
+
+    return [...source].sort((left, right) => {
+      if (left.signalStrength === null) return right.signalStrength === null ? 0 : 1
+      if (right.signalStrength === null) return -1
+      return strengthSort === 'desc' ? right.signalStrength - left.signalStrength : left.signalStrength - right.signalStrength
+    })
+  }, [closedSignals, openSignals, state, strengthSort])
 
   useEffect(() => {
     if (state !== 'closed') return
@@ -79,6 +90,7 @@ export default function SignalHistory({ openSignals, onClose, onSelectSymbol }: 
             <button className={state === 'open' ? 'active' : ''} onClick={() => switchState('open')}>Открытые <b>{openSignals.length}</b></button>
             <button className={state === 'closed' ? 'active' : ''} onClick={() => switchState('closed')}>Закрытые</button>
             <button className={state === 'statistics' ? 'active' : ''} onClick={() => switchState('statistics')}>Статистика</button>
+            {state !== 'statistics' && <button className={strengthSort !== 'none' ? 'active' : ''} onClick={() => setStrengthSort((current) => current === 'none' ? 'desc' : current === 'desc' ? 'asc' : 'none')}>Сила <b>{strengthSort === 'desc' ? '↓' : strengthSort === 'asc' ? '↑' : '↕'}</b></button>}
           </div>
           <button className="signal-history-close" onClick={onClose} aria-label="Закрыть историю">×</button>
         </div>
@@ -104,7 +116,7 @@ export default function SignalHistory({ openSignals, onClose, onSelectSymbol }: 
           <span className={`signal-status-badge ${signal.status}`}>{statusText[signal.status]}</span>
           <SetupStrength score={signal.signalStrength} />
           <span className="signal-card-price">Вход {formatPrice(signal.entryPrice)}<small>Стоп {formatPrice(signal.initialStopPrice)} · {signal.tp2Price === undefined ? 'TP1 — финальная цель' : `TP2 ${formatPrice(signal.tp2Price)}`}</small></span>
-          <span className={signal.outcomeR === null ? 'signal-r' : signal.outcomeR >= 0 ? 'signal-r positive' : 'signal-r negative'}>{state === 'closed' ? formatPnlUsd(signal.outcomeR) : signal.outcomeR === null ? '—' : `${signal.outcomeR >= 0 ? '+' : ''}${signal.outcomeR.toFixed(2)}R`}</span>
+          <span className={signal.outcomeR === null ? 'signal-r' : signal.outcomeR >= 0 ? 'signal-r positive' : 'signal-r negative'}>{formatPnlUsd(signal.outcomeR)}</span>
         </button>)}
         {!signals.length && <div className="signal-empty">{loading ? 'Загружаем историю…' : state === 'open' ? 'Открытых зафиксированных сигналов пока нет' : 'Закрытых сигналов пока нет'}</div>}
       </div>}

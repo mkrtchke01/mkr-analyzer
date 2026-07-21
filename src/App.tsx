@@ -4,7 +4,7 @@ import { createRiskRewardBox } from './components/RiskReward'
 import SignalHistory from './components/SignalHistory'
 import TrendPanel, { TradePlans } from './components/TrendPanel'
 import SetupStrength from './components/SetupStrength'
-import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, MARKET_LIST_LIMIT, sortMarketsByTrend, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
+import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, MARKET_LIST_LIMIT, sortMarketsBySetupStrength, sortMarketsByTrend, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
 import { getAccountSummary, getSavedSignals, tradePlanFromSavedSignal, type SavedSignal } from './lib/signals'
 import { getMarketInfo, type DivergenceInfo, type MarketInfoSignal } from './lib/marketInfo'
 import { RISK_PER_TRADE_USDT, STARTING_BALANCE_USDT, type AccountSummary } from './lib/positionSizing'
@@ -55,6 +55,7 @@ export default function App() {
   const [marketsReady, setMarketsReady] = useState(false)
   const [marketTrends, setMarketTrends] = useState<Record<string, TrendIndicator>>({})
   const [trendSort, setTrendSort] = useState<TrendSort>('none')
+  const [setupStrengthSort, setSetupStrengthSort] = useState<TrendSort>('none')
   const [setupScanning, setSetupScanning] = useState(false)
   const [savedOpenSignals, setSavedOpenSignals] = useState<SavedSignal[]>([])
   const [accountSummary, setAccountSummary] = useState<AccountSummary>({ balance: STARTING_BALANCE_USDT, pnl: 0, closedTrades: 0 })
@@ -194,9 +195,10 @@ export default function App() {
   const visibleMarkets = useMemo(
     () => {
       const filtered = filterMarketList(markets, search, setupSymbols, setupsOnly, strategySymbols)
-      return (trendSort === 'none' ? filtered : sortMarketsByTrend(filtered, trendStrengths, trendSort)).slice(0, MARKET_LIST_LIMIT)
+      const trendSorted = trendSort === 'none' ? filtered : sortMarketsByTrend(filtered, trendStrengths, trendSort)
+      return (setupStrengthSort === 'none' ? trendSorted : sortMarketsBySetupStrength(trendSorted, setupStrengths, setupStrengthSort)).slice(0, MARKET_LIST_LIMIT)
     },
-    [markets, search, setupSymbols, setupsOnly, strategySymbols, trendSort, trendStrengths],
+    [markets, search, setupSymbols, setupsOnly, strategySymbols, setupStrengthSort, setupStrengths, trendSort, trendStrengths],
   )
 
   useEffect(() => {
@@ -432,7 +434,7 @@ export default function App() {
             </button>)}
           </div>
         </section>
-        <div className="list-label"><span>ПАРА</span><button className={`trend-sort ${trendSort !== 'none' ? 'active' : ''}`} onClick={() => setTrendSort((current) => current === 'none' ? 'desc' : current === 'desc' ? 'asc' : 'none')} aria-label="Сортировать по силе тренда">ТРЕНД <i>{trendSort === 'desc' ? '↓' : trendSort === 'asc' ? '↑' : '↕'}</i></button><span>СИЛА</span><span>ЦЕНА / 24Ч</span></div>
+        <div className="list-label"><span>ПАРА</span><button className={`trend-sort ${trendSort !== 'none' ? 'active' : ''}`} onClick={() => { setTrendSort((current) => current === 'none' ? 'desc' : current === 'desc' ? 'asc' : 'none'); setSetupStrengthSort('none') }} aria-label="Сортировать по силе тренда">ТРЕНД <i>{trendSort === 'desc' ? '↓' : trendSort === 'asc' ? '↑' : '↕'}</i></button><button className={`strength-sort ${setupStrengthSort !== 'none' ? 'active' : ''}`} onClick={() => { setSetupStrengthSort((current) => current === 'none' ? 'desc' : current === 'desc' ? 'asc' : 'none'); setTrendSort('none') }} aria-label="Сортировать по силе сетапа">СИЛА <i>{setupStrengthSort === 'desc' ? '↓' : setupStrengthSort === 'asc' ? '↑' : '↕'}</i></button><span>ЦЕНА / 24Ч</span></div>
         <div className="market-list">
           {visibleMarkets.map((market) => (
             <button className={`market-row ${market.symbol === symbol ? 'selected' : ''} ${activeMarketSetups[market.symbol]?.[0] ? `setup-${activeMarketSetups[market.symbol]![0].side}` : ''}`} key={market.symbol} onClick={() => setSymbol(market.symbol)}>

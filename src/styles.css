@@ -47,3 +47,4 @@ button { cursor: pointer; }
 /* Keep the indicator's drawing area equal to the candlestick plot, excluding its right price scale. */
 .rsi-panel { padding-right: 80px; }
 .rsi-level { right: 86px; }
+.strength-sort { justify-self: start; padding: 0; border: 0; color: inherit; background: transparent; cursor: pointer; font: inherit; letter-spacing: inherit; }.strength-sort:hover, .strength-sort.active { color: #b8ff6c; }.strength-sort i { margin-left: 3px; font-size: 10px; font-style: normal; }
