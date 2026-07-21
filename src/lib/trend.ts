@@ -9,8 +9,10 @@ export const SETUP_META: Record<SetupType, { shortName: string; name: string }> 
   'trend-reclaim': { shortName: 'TR', name: 'Возврат к тренду' },
   'level-breakout': { shortName: 'LB', name: 'Пробой уровня' },
   'false-breakout': { shortName: 'FB', name: 'Ложный пробой' },
-  'bottom-reversal': { shortName: 'RL', name: 'Разворот от дна' },
-  'top-reversal': { shortName: 'RH', name: 'Разворот от вершины' },
+  // Направления хранятся разными типами для логики и истории, но для пользователя
+  // это одна стратегия: вход после подтверждённой RSI-дивергенции.
+  'bottom-reversal': { shortName: 'DV', name: 'RSI-дивергенция' },
+  'top-reversal': { shortName: 'DV', name: 'RSI-дивергенция' },
   'breakout-retest': { shortName: 'BR', name: 'Пробой + ретест' },
   // Оставляем метаданные только для уже сохранённых исторических сигналов CS.
   consensus: { shortName: 'CS', name: 'Согласованный тренд' },

@@ -375,7 +375,7 @@ describe('trend analysis', () => {
       fiveMinuteCandles: makeFiveMinuteBullishReclaim(),
     })
 
-    expect(plan).toMatchObject({ setupType: 'bottom-reversal', stop: { side: 'long' } })
+    expect(plan).toMatchObject({ setupType: 'bottom-reversal', setupName: 'RSI-дивергенция', stop: { side: 'long' } })
     expect(plan!.setupNote).toContain('26 свечей')
     expect(plan!.setupNote).toContain('5m отскок')
     expect(plan!.stop.price).toBeLessThan(plan!.stop.entry)
