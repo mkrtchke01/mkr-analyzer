@@ -12,6 +12,7 @@ const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
 const MAX_CONCURRENCY = 5
 const MINIMUM_SIGNAL_STRENGTH = 7
 const BREAKOUT_RETEST_RULE_VERSION = 2
+const TREND_RECLAIM_RULE_VERSION = 2
 
 type StoredSignal = {
   id: string
@@ -30,7 +31,7 @@ type StoredSignal = {
   detected_candle_time: number
   last_checked_candle_time: number
   expires_at: string
-  plan_snapshot?: { breakoutRetestRuleVersion?: number } | null
+  plan_snapshot?: { breakoutRetestRuleVersion?: number, trendReclaimRuleVersion?: number } | null
 }
 
 type ScannerRun = { id: string }
@@ -140,13 +141,15 @@ async function patchSignal(id: string, values: Record<string, unknown>) {
   })
 }
 
-export function isLegacyBreakoutRetestSignal(signal: Pick<StoredSignal, 'setup_type' | 'plan_snapshot'>) {
-  return signal.setup_type === 'breakout-retest' && signal.plan_snapshot?.breakoutRetestRuleVersion !== BREAKOUT_RETEST_RULE_VERSION
+export function requiresSetupRuleRevalidation(signal: Pick<StoredSignal, 'setup_type' | 'plan_snapshot'>) {
+  if (signal.setup_type === 'breakout-retest') return signal.plan_snapshot?.breakoutRetestRuleVersion !== BREAKOUT_RETEST_RULE_VERSION
+  if (signal.setup_type === 'trend-reclaim') return signal.plan_snapshot?.trendReclaimRuleVersion !== TREND_RECLAIM_RULE_VERSION
+  return false
 }
 
 async function monitorSignal(signal: StoredSignal) {
   const candles = closedCandles(await getCandles(signal.symbol, '5m', 200))
-  if (isLegacyBreakoutRetestSignal(signal)) {
+  if (requiresSetupRuleRevalidation(signal)) {
     const last = candles.at(-1)
     if (!last) return
     await patchSignal(signal.id, {
@@ -155,7 +158,7 @@ async function monitorSignal(signal: StoredSignal) {
       last_price: last.close,
       last_checked_candle_time: last.time,
     })
-    await createEvent(signal.id, 'expired', last, { reason: 'Breakout-retest signal invalidated after stricter breakout and fixed 3R target rules' })
+    await createEvent(signal.id, 'expired', last, { reason: 'Signal invalidated after the strategy entry rules were tightened' })
     return
   }
   const signalState: ManagedSignal = {
@@ -216,6 +219,7 @@ export async function persistPlan(symbol: string, plan: TradePlan, analyses: Tre
   const scoredPlan = {
     ...plan,
     ...(plan.setupType === 'breakout-retest' ? { breakoutRetestRuleVersion: BREAKOUT_RETEST_RULE_VERSION } : {}),
+    ...(plan.setupType === 'trend-reclaim' ? { trendReclaimRuleVersion: TREND_RECLAIM_RULE_VERSION } : {}),
     signalStrength,
     positionSizing,
   }

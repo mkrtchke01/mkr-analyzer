@@ -346,31 +346,44 @@ export type DivergenceReversalContext = {
   fiveMinuteCandles: Candle[]
 }
 
-type HourlyPullback = { side: 'long' | 'short', retracement: number }
+type HourlyPullback = { side: 'long' | 'short', retracement: number, correctionPrice: number, atr: number }
 
-function findHourlyPullback(candles: Candle[], side: 'long' | 'short'): HourlyPullback | undefined {
+export function findHourlyPullback(candles: Candle[], side: 'long' | 'short'): HourlyPullback | undefined {
   const atr = calculateAtr(candles)
   if (!atr || candles.length < 35) return undefined
 
   const lastIndex = candles.length - 1
   const kind = side === 'long' ? 'high' : 'low'
-  for (let impulseEndIndex = Math.min(candles.length - 3, lastIndex - 3); impulseEndIndex >= Math.max(2, candles.length - 36); impulseEndIndex -= 1) {
+  for (let impulseEndIndex = Math.min(candles.length - 3, lastIndex - 2); impulseEndIndex >= Math.max(2, candles.length - 24); impulseEndIndex -= 1) {
     if (!isSwingAt(candles, impulseEndIndex, kind)) continue
     const origin = findLastSwing(candles, side === 'long' ? 'low' : 'high', impulseEndIndex - 1)
-    if (!origin || impulseEndIndex - origin.index > 80) continue
+    if (!origin || impulseEndIndex - origin.index < 3 || impulseEndIndex - origin.index > 24) continue
 
     const impulseEnd = kind === 'high' ? candles[impulseEndIndex].high : candles[impulseEndIndex].low
-    const correctionEnd = side === 'long'
-      ? Math.min(...candles.slice(impulseEndIndex + 1).map((candle) => candle.low))
-      : Math.max(...candles.slice(impulseEndIndex + 1).map((candle) => candle.high))
+    const correctionCandles = candles.slice(impulseEndIndex + 1)
+    const correctionOffset = correctionCandles.reduce((bestIndex, candle, index) => {
+      const best = correctionCandles[bestIndex]
+      return side === 'long' ? candle.low < best.low ? index : bestIndex : candle.high > best.high ? index : bestIndex
+    }, 0)
+    const correctionIndex = impulseEndIndex + 1 + correctionOffset
+    const correctionEnd = side === 'long' ? correctionCandles[correctionOffset].low : correctionCandles[correctionOffset].high
     const impulse = side === 'long' ? impulseEnd - origin.price : origin.price - impulseEnd
     const retracement = side === 'long'
       ? (impulseEnd - correctionEnd) / impulse
       : (correctionEnd - impulseEnd) / impulse
+    const directionalImpulseCandles = candles.slice(origin.index + 1, impulseEndIndex + 1)
+      .filter((candle) => side === 'long' ? candle.close > candle.open : candle.close < candle.open).length
+    const recovery = side === 'long'
+      ? (candles.at(-1)!.close - correctionEnd) / (impulseEnd - correctionEnd)
+      : (correctionEnd - candles.at(-1)!.close) / (correctionEnd - impulseEnd)
     const stillInPullback = side === 'long'
       ? candles.at(-1)!.close < impulseEnd - atr * 0.2
       : candles.at(-1)!.close > impulseEnd + atr * 0.2
-    if (impulse >= atr * 4 && retracement >= 0.382 && retracement <= 0.786 && stillInPullback) return { side, retracement }
+    const recentCorrection = lastIndex - correctionIndex <= 12
+    const directionalImpulse = directionalImpulseCandles >= Math.ceil((impulseEndIndex - origin.index) * 0.55)
+    if (impulse >= atr * 5 && retracement >= 0.3 && retracement <= 0.65 && recovery <= 0.5 && stillInPullback && recentCorrection && directionalImpulse) {
+      return { side, retracement, correctionPrice: correctionEnd, atr }
+    }
   }
 
   return undefined
@@ -408,6 +421,9 @@ export function calculateTrendReclaimPlan(candles: Candle[], context: TrendRecla
   const entry = candles.at(-1)!.close
   const pullback = findLastSwing(candles, side === 'long' ? 'low' : 'high')
   if (!pullback || !atr) return null
+  const isFreshFiveMinutePullback = pullback.index >= candles.length - 10
+  const isAtHourlyPullback = Math.abs(pullback.price - hourlyPullback.correctionPrice) <= hourlyPullback.atr * 1.25
+  if (!isFreshFiveMinutePullback || !isAtHourlyPullback) return null
 
   const localTarget = findLastSwing(candles, side === 'long' ? 'high' : 'low', pullback.index - 1)
   if (!localTarget) return null
@@ -429,7 +445,7 @@ export function calculateTrendReclaimPlan(candles: Candle[], context: TrendRecla
   return {
     setupType: 'trend-reclaim',
     setupName: SETUP_META['trend-reclaim'].name,
-    setupNote: `4h / 1h / 15m ${side.toUpperCase()} · Коррекция 1h ${(hourlyPullback.retracement * 100).toFixed(1)}% · 5m подтверждён 2 свечами`,
+    setupNote: `4h / 1h / 15m ${side.toUpperCase()} · импульс 1h и коррекция ${(hourlyPullback.retracement * 100).toFixed(1)}% · 5m разворот от экстремума коррекции`,
     stop,
     takeProfits: [
       { id: 'TP1', price: localTarget.price, share: 50, riskMultiple: rewardToTarget / risk },

@@ -17,7 +17,7 @@ vi.mock('../../src/lib/signalSnapshot.js', () => ({
   createSignalSnapshot: vi.fn(() => '<svg />'),
 }))
 
-const { isLegacyBreakoutRetestSignal, persistPlan, selectStrongestPlan } = await import('./scan')
+const { persistPlan, requiresSetupRuleRevalidation, selectStrongestPlan } = await import('./scan')
 
 const plan: TradePlan = {
   setupType: 'breakout-retest',
@@ -70,9 +70,11 @@ describe('signal persistence', () => {
     expect(mocks.supabaseRequest).not.toHaveBeenCalled()
   })
 
-  it('expires only breakout-retest snapshots created before the strict rule version', () => {
-    expect(isLegacyBreakoutRetestSignal({ setup_type: 'breakout-retest', plan_snapshot: null })).toBe(true)
-    expect(isLegacyBreakoutRetestSignal({ setup_type: 'breakout-retest', plan_snapshot: { breakoutRetestRuleVersion: 2 } })).toBe(false)
-    expect(isLegacyBreakoutRetestSignal({ setup_type: 'trend-reclaim', plan_snapshot: null })).toBe(false)
+  it('expires strategy snapshots created before their stricter entry rules', () => {
+    expect(requiresSetupRuleRevalidation({ setup_type: 'breakout-retest', plan_snapshot: null })).toBe(true)
+    expect(requiresSetupRuleRevalidation({ setup_type: 'breakout-retest', plan_snapshot: { breakoutRetestRuleVersion: 2 } })).toBe(false)
+    expect(requiresSetupRuleRevalidation({ setup_type: 'trend-reclaim', plan_snapshot: null })).toBe(true)
+    expect(requiresSetupRuleRevalidation({ setup_type: 'trend-reclaim', plan_snapshot: { trendReclaimRuleVersion: 2 } })).toBe(false)
+    expect(requiresSetupRuleRevalidation({ setup_type: 'false-breakout', plan_snapshot: null })).toBe(false)
   })
 })

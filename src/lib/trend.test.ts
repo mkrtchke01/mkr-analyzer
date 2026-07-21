@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateAtr, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, countPreBreakoutLevelTouches, getOverallTrend, getScannerStrategy, getTrendIndicator, hasEnoughBreakoutLevelTouches, selectPrimaryRetestLevel, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateAtr, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, countPreBreakoutLevelTouches, findHourlyPullback, getOverallTrend, getScannerStrategy, getTrendIndicator, hasEnoughBreakoutLevelTouches, selectPrimaryRetestLevel, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -146,13 +146,19 @@ const makeHourlyRetestPivot = (): Candle[] => {
 }
 
 const makeHourlyPullbackCandles = (): Candle[] => {
-  const candles: Candle[] = Array.from({ length: 100 }, (_, index) => ({ time: index * 3600, open: 100, high: 101, low: 99, close: 100, volume: 100 }))
+  const candles: Candle[] = Array.from({ length: 100 }, (_, index) => ({ time: index * 3600, open: 110, high: 111, low: 109, close: 110, volume: 100 }))
   const set = (index: number, open: number, high: number, low: number, close: number) => { candles[index] = { time: index * 3600, open, high, low, close, volume: 140 } }
-  set(50, 98, 101, 95, 98)
-  set(70, 118, 120, 117, 119)
-  set(71, 118, 119, 115, 116)
-  for (let index = 72; index < 99; index += 1) set(index, 112, 113, 110, 112)
-  set(99, 114, 116, 113, 115)
+  // A genuine 1h impulse: a clear swing low followed by nineteen bullish hourly candles.
+  set(67, 110, 111, 108, 109)
+  for (let index = 68; index < 87; index += 1) {
+    const close = 109 + (index - 67) * 0.75
+    set(index, close - 0.45, close + 0.5, close - 0.7, close)
+  }
+  set(87, 123.5, 125, 122.8, 124)
+  // The correction returns 34% of the 1h impulse and is still active.
+  set(88, 124, 124.2, 119.2, 120)
+  for (let index = 89; index < 99; index += 1) set(index, 120, 120.8, 119.4, 120)
+  set(99, 120, 121, 119.6, 120.5)
   return candles
 }
 
@@ -314,7 +320,7 @@ describe('trend analysis', () => {
     expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1)
     expect(plan!.takeProfits[1]).toMatchObject({ id: 'TP2', share: 50, riskMultiple: 3, price: plan!.stop.entry + risk * 3 })
     expect(plan!.setupType).toBe('trend-reclaim')
-    expect(plan!.setupNote).toContain('Коррекция 1h')
+    expect(plan!.setupNote).toContain('импульс 1h')
   })
 
   it('requires 4h, 1h and 15m to have the same trend direction', () => {
@@ -327,7 +333,29 @@ describe('trend analysis', () => {
     const plan = calculateTradePlan(makeStoppedPullbackCandles(), context)
 
     expect(plan).toMatchObject({ setupType: 'trend-reclaim', stop: { side: 'long' } })
-    expect(plan!.setupNote).toContain('5m подтверждён 2 свечами')
+    expect(plan!.setupNote).toContain('5m разворот от экстремума коррекции')
+  })
+
+  it('recognizes a fresh 1h correction only after a directional 1h impulse', () => {
+    expect(findHourlyPullback(makeHourlyPullbackCandles(), 'long')).toMatchObject({ correctionPrice: 119.2 })
+  })
+
+  it('rejects a 5m reversal that is not formed at the active 1h correction', () => {
+    const hourlyCandles = makeHourlyPullbackCandles()
+    const fiveMinuteCandles = makeStoppedPullbackCandles().map((candle) => ({
+      ...candle,
+      open: candle.open + 4,
+      high: candle.high + 4,
+      low: candle.low + 4,
+      close: candle.close + 4,
+    }))
+
+    expect(calculateTradePlan(fiveMinuteCandles, {
+      fourHour: analysis('4h', 'bullish', 60),
+      oneHour: analysis('1h', 'bullish', 60),
+      fifteenMinute: analysis('15m', 'bullish', 60),
+      hourlyCandles,
+    })).toBeNull()
   })
 
   it('rejects a trend reclaim when one of 4h, 1h or 15m disagrees', () => {
