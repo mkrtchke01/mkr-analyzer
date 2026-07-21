@@ -628,9 +628,15 @@ function buildFalseBreakoutTargets(entry: number, stopPrice: number, side: 'long
   const firstReward = side === 'long' ? localTarget.price - entry : entry - localTarget.price
   if (firstReward < risk * 1.5) return undefined
 
-  const followUpTargets = findHourlyTargets(hourlyCandles, side, entry)
-    .filter((price) => side === 'long' ? price > localTarget.price : price < localTarget.price)
-  const selected = [localTarget.price, ...followUpTargets]
+  const direction = side === 'long' ? 1 : -1
+  const targetAtThreeR = entry + direction * risk * 3
+  const nearestLevelIsCloser = side === 'long'
+    ? localTarget.price < targetAtThreeR
+    : localTarget.price > targetAtThreeR
+  const firstTarget = nearestLevelIsCloser ? localTarget.price : targetAtThreeR
+  const followUpTargets = [localTarget.price, ...findHourlyTargets(hourlyCandles, side, entry)]
+    .filter((price) => side === 'long' ? price > firstTarget : price < firstTarget)
+  const selected = [firstTarget, ...followUpTargets]
     .filter((price, index, prices) => prices.findIndex((candidate) => Math.abs(candidate - price) < risk * 0.15) === index)
     .slice(0, 3)
   const shares = selected.length === 3 ? [40, 35, 25] : selected.length === 2 ? [50, 50] : [100]

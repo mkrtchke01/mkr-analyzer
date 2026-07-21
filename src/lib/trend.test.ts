@@ -356,6 +356,15 @@ describe('trend analysis', () => {
     expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.5)
   })
 
+  it('uses 3R for the first false-breakout target when the nearest level is farther away', () => {
+    const candles = makeFalseBreakoutCandles()
+    candles[23] = { ...candles[23], low: 110 }
+    const plan = calculateFalseBreakoutPlan(candles, 'short', { hourlyCandles: makeHourlyBreakoutRange() })
+
+    expect(plan).not.toBeNull()
+    expect(plan!.takeProfits[0].riskMultiple).toBeCloseTo(3, 6)
+  })
+
   it('mirrors the false-breakout plan for a sweep below 1h support', () => {
     const plan = calculateFalseBreakoutPlan(mirrorCandles(makeFalseBreakoutCandles()), 'long', { hourlyCandles: mirrorCandles(makeHourlyBreakoutRange()) })
 
