@@ -7,6 +7,7 @@ export type StrategyStatsSignal = {
   tp2Price?: number
   tp3Price?: number
   outcomeR: number | null
+  netPnlUsd?: number | null
 }
 
 export type StrategyStats = {
@@ -50,7 +51,11 @@ export function calculateStrategyStats(signals: StrategyStatsSignal[]): Strategy
     if (isOpenSignalForStats(signal)) item.open += 1
     if (signal.status === 'stop') item.stopped += 1
     if (isProfitClosure(signal)) item.profitable += 1
-    if (!isOpenSignalForStats(signal) && typeof signal.outcomeR === 'number' && Number.isFinite(signal.outcomeR)) item.pnl += signal.outcomeR * RISK_PER_TRADE_USDT
+    if (!isOpenSignalForStats(signal) && typeof signal.outcomeR === 'number' && Number.isFinite(signal.outcomeR)) {
+      item.pnl += typeof signal.netPnlUsd === 'number' && Number.isFinite(signal.netPnlUsd)
+        ? signal.netPnlUsd
+        : signal.outcomeR * RISK_PER_TRADE_USDT
+    }
   })
 
   return stats

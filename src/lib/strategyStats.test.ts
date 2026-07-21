@@ -22,4 +22,12 @@ describe('strategy statistics', () => {
 
     expect(result.find((item) => item.strategyId === 'divergence')).toMatchObject({ total: 2, open: 1, stopped: 1, pnl: -2 })
   })
+
+  it('uses net dollar PnL when the server has deducted fees', () => {
+    const result = calculateStrategyStats([
+      { setupType: 'false-breakout', status: 'tp1', outcomeR: 1.5, netPnlUsd: 2.44 },
+    ])
+
+    expect(result.find((item) => item.strategyId === 'false-breakout')).toMatchObject({ total: 1, profitable: 1, pnl: 2.44 })
+  })
 })

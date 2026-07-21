@@ -1,7 +1,8 @@
 import { getPublicSnapshotUrl, supabaseRequest } from '../_lib/supabase.js'
 import { calculateStrategyStats, type StrategyStatsSignal } from '../../src/lib/strategyStats.js'
 import { calculateSignalStrength } from '../../src/lib/signalStrength.js'
-import { calculateAccountSummary } from '../_lib/account.js'
+import { calculateAccountSummaryFromPnl } from '../_lib/account.js'
+import { calculateBybitFeeUsd, calculateNetPnlUsd } from '../_lib/tradeFees.js'
 
 function signalStrengthFromSnapshot(record: any): number | null {
   const storedScore = Number(record.plan_snapshot?.signalStrength?.score)
@@ -28,27 +29,28 @@ export default async function handler(request: any, response: any) {
 
   try {
     if (request.query?.state === 'statistics') {
-      const records = await supabaseRequest<Array<{ setup_type: StrategyStatsSignal['setupType'] | null; status: StrategyStatsSignal['status']; tp2_price: string | null; tp3_price: string | null; outcome_r: string | null }>>('/rest/v1/mkr_signals?select=setup_type,status,tp2_price,tp3_price,outcome_r&status=in.(active,tp1,tp2,tp3,stop,expired,ambiguous)&limit=1000')
+      const records = await supabaseRequest<Array<any>>('/rest/v1/mkr_signals?select=setup_type,status,tp2_price,tp3_price,outcome_r,entry_price,initial_stop_price,last_price,plan_snapshot&status=in.(active,tp1,tp2,tp3,stop,expired,ambiguous)&limit=1000')
       const signals: StrategyStatsSignal[] = records.map((record) => ({
         setupType: record.setup_type ?? 'trend-reclaim',
         status: record.status,
         tp2Price: record.tp2_price === null ? undefined : Number(record.tp2_price),
         tp3Price: record.tp3_price === null ? undefined : Number(record.tp3_price),
         outcomeR: record.outcome_r === null ? null : Number(record.outcome_r),
+        netPnlUsd: isClosedRecord(record) ? calculateNetPnlUsd(record) : null,
       }))
       response.setHeader('Cache-Control', 'no-store')
       return response.status(200).json({ statistics: calculateStrategyStats(signals) })
     }
 
     if (request.query?.state === 'account') {
-      const records = await supabaseRequest<Array<{ status: string; tp2_price: string | null; tp3_price: string | null; outcome_r: string | null; plan_snapshot: unknown }>>('/rest/v1/mkr_signals?select=status,tp2_price,tp3_price,outcome_r,plan_snapshot&status=in.(active,tp1,tp2,tp3,stop,expired,ambiguous)&limit=1000')
-      const outcomesR = records
+      const records = await supabaseRequest<Array<any>>('/rest/v1/mkr_signals?select=status,tp2_price,tp3_price,outcome_r,entry_price,initial_stop_price,last_price,plan_snapshot&status=in.(active,tp1,tp2,tp3,stop,expired,ambiguous)&limit=1000')
+      const netPnlsUsd = records
         .filter(isClosedRecord)
-        .map((record) => Number(record.outcome_r))
+        .map(calculateNetPnlUsd)
         .filter(Number.isFinite)
       const openMargins = records.filter(isOpenRecord).map(marginFromSnapshot)
       response.setHeader('Cache-Control', 'no-store')
-      return response.status(200).json({ account: calculateAccountSummary(outcomesR, openMargins) })
+      return response.status(200).json({ account: calculateAccountSummaryFromPnl(netPnlsUsd, openMargins) })
     }
 
     const state = request.query?.state === 'closed' ? 'closed' : 'open'
@@ -74,6 +76,8 @@ export default async function handler(request: any, response: any) {
         positionSizing: record.plan_snapshot?.positionSizing,
         lastPrice: Number(record.last_price),
         outcomeR: record.outcome_r === null ? null : Number(record.outcome_r),
+        feeUsd: calculateBybitFeeUsd(record),
+        netPnlUsd: calculateNetPnlUsd(record),
         snapshotUrl: getPublicSnapshotUrl(record.snapshot_path),
       })),
     })

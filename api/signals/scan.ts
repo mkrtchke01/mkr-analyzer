@@ -3,7 +3,8 @@ import { getCandles, getMarkets, type Candle, type Timeframe } from '../../src/l
 import { createSignalSnapshot } from '../../src/lib/signalSnapshot.js'
 import { evaluateSignalCandle, type ManagedSignal } from '../../src/lib/signalLifecycle.js'
 import { calculateSignalStrength } from '../../src/lib/signalStrength.js'
-import { calculateAccountSummary, calculatePositionSizing, MAX_OPEN_POSITIONS, STARTING_BALANCE_USDT } from '../_lib/account.js'
+import { calculateAccountSummaryFromPnl, calculatePositionSizing, MAX_OPEN_POSITIONS, STARTING_BALANCE_USDT } from '../_lib/account.js'
+import { calculateNetPnlUsd } from '../_lib/tradeFees.js'
 import { analyzeTrend, calculateTradePlans, getOverallTrend, type SetupType, type TradePlan, type TrendAnalysis } from '../../src/lib/trend.js'
 import { isAuthorizedCronRequest, supabaseRequest, uploadSnapshot } from '../_lib/supabase.js'
 
@@ -74,9 +75,9 @@ function marginFromSnapshot(signal: any): number | null {
 }
 
 function fundingFromSignals(signals: any[]): ScannerFunding {
-  const outcomes = signals.filter(isClosedSignal).map((signal) => Number(signal.outcome_r)).filter(Number.isFinite)
+  const outcomes = signals.filter(isClosedSignal).map(calculateNetPnlUsd).filter(Number.isFinite)
   const openSignals = signals.filter(isOpenSignal)
-  const account = calculateAccountSummary(outcomes, openSignals.map(marginFromSnapshot))
+  const account = calculateAccountSummaryFromPnl(outcomes, openSignals.map(marginFromSnapshot))
   return { availableBalance: account.balance, equity: account.equity, openPositions: openSignals.length }
 }
 
@@ -303,7 +304,7 @@ export default async function handler(request: any, response: any) {
       }
     })
 
-    const accountSignals = await supabaseRequest<any[]>('/rest/v1/mkr_signals?select=symbol,status,tp2_price,tp3_price,outcome_r,plan_snapshot&status=in.(active,tp1,tp2,tp3,stop,expired,ambiguous)&limit=1000')
+    const accountSignals = await supabaseRequest<any[]>('/rest/v1/mkr_signals?select=symbol,status,tp2_price,tp3_price,outcome_r,entry_price,initial_stop_price,last_price,plan_snapshot&status=in.(active,tp1,tp2,tp3,stop,expired,ambiguous)&limit=1000')
     const funding = fundingFromSignals(accountSignals)
     const currentOpenSignals = accountSignals.filter(isOpenSignal)
     const currentOpenSymbols = new Set(currentOpenSignals.map((signal) => signal.symbol))

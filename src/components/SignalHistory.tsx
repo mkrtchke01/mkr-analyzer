@@ -29,9 +29,10 @@ function formatTimestamp(value: string) {
   return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
 }
 
-function formatPnlUsd(outcomeR: number | null) {
+function formatPnlUsd(signal: SavedSignal) {
+  const { outcomeR } = signal
   if (outcomeR === null) return '—'
-  const pnl = calculatePnlUsd(outcomeR)
+  const pnl = signal.netPnlUsd ?? calculatePnlUsd(outcomeR)
   return `${pnl < 0 ? '-' : '+'}$${Math.abs(pnl).toFixed(2)}`
 }
 
@@ -116,7 +117,7 @@ export default function SignalHistory({ openSignals, onClose, onSelectSymbol }: 
           <span className={`signal-status-badge ${signal.status}`}>{statusText[signal.status]}</span>
           <SetupStrength score={signal.signalStrength} />
           <span className="signal-card-price">Вход {formatPrice(signal.entryPrice)}<small>Стоп {formatPrice(signal.initialStopPrice)} · {signal.tp2Price === undefined ? 'TP1 — финальная цель' : `TP2 ${formatPrice(signal.tp2Price)}`}</small></span>
-          <span className={signal.outcomeR === null ? 'signal-r' : signal.outcomeR >= 0 ? 'signal-r positive' : 'signal-r negative'}>{formatPnlUsd(signal.outcomeR)}</span>
+          <span className={signal.outcomeR === null ? 'signal-r' : (signal.netPnlUsd ?? calculatePnlUsd(signal.outcomeR)) >= 0 ? 'signal-r positive' : 'signal-r negative'}>{formatPnlUsd(signal)}{signal.feeUsd !== null && <small>ком. −${signal.feeUsd.toFixed(2)}</small>}</span>
         </button>)}
         {!signals.length && <div className="signal-empty">{loading ? 'Загружаем историю…' : state === 'open' ? 'Открытых зафиксированных сигналов пока нет' : 'Закрытых сигналов пока нет'}</div>}
       </div>}

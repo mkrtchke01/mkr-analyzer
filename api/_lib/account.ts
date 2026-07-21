@@ -14,8 +14,12 @@ export type AccountSummary = {
 }
 
 export function calculateAccountSummary(outcomesR: Array<number | null | undefined>, openMargins: Array<number | null | undefined> = []): AccountSummary {
-  const closedTrades = outcomesR.filter((outcomeR): outcomeR is number => Number.isFinite(outcomeR)).length
-  const pnl = outcomesR.reduce((sum, outcomeR) => sum + (typeof outcomeR === 'number' && Number.isFinite(outcomeR) ? outcomeR * RISK_PER_TRADE_USDT : 0), 0)
+  return calculateAccountSummaryFromPnl(outcomesR.map((outcomeR) => typeof outcomeR === 'number' && Number.isFinite(outcomeR) ? outcomeR * RISK_PER_TRADE_USDT : null), openMargins)
+}
+
+export function calculateAccountSummaryFromPnl(pnlsUsd: Array<number | null | undefined>, openMargins: Array<number | null | undefined> = []): AccountSummary {
+  const closedTrades = pnlsUsd.filter((pnl): pnl is number => Number.isFinite(pnl)).length
+  const pnl = pnlsUsd.reduce((sum, value) => sum + (typeof value === 'number' && Number.isFinite(value) ? value : 0), 0)
   const equity = STARTING_BALANCE_USDT + pnl
   const lockedMargin = openMargins.reduce((sum, margin) => sum + (typeof margin === 'number' && Number.isFinite(margin) && margin > 0 ? margin : 0), 0)
   return { balance: Math.max(0, equity - lockedMargin), equity, lockedMargin, pnl, closedTrades }

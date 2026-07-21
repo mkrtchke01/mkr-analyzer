@@ -22,6 +22,8 @@ export type SavedSignal = {
   positionSizing?: PositionSizing
   lastPrice: number
   outcomeR: number | null
+  feeUsd: number | null
+  netPnlUsd: number | null
   snapshotUrl: string | null
 }
 
