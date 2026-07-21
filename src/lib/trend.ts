@@ -49,6 +49,7 @@ export type TradePlan = {
   stop: StopProposal
   takeProfits: TakeProfitLevel[]
   signalKey?: string
+  entryTime?: number
 }
 
 export type ManualChartLevel = {
@@ -60,6 +61,7 @@ export type ManualChartLevel = {
   color?: string
   label?: string
   dashed?: boolean
+  extendRight?: boolean
 }
 
 export type TrendIndicator = {

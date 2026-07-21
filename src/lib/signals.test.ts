@@ -23,6 +23,7 @@ describe('fixed signal plan', () => {
   it('keeps the original entry, targets and stop from the saved signal', () => {
     const plan = tradePlanFromSavedSignal(savedSignal)
 
+    expect(plan.entryTime).toBe(Math.floor(new Date(savedSignal.detectedAt).getTime() / 1000))
     expect(plan.stop).toMatchObject({ side: 'long', entry: 100, price: 95 })
     expect(plan.takeProfits).toEqual([
       { id: 'TP1', price: 107.5, share: 50, riskMultiple: 1.5 },
