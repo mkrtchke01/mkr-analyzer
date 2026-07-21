@@ -1,6 +1,11 @@
 export const STARTING_BALANCE_USDT = 50
 export const RISK_PER_TRADE_USDT = 2
 
+/** Converts a finished trade result from R to its fixed-risk USD equivalent. */
+export function calculatePnlUsd(outcomeR: number): number {
+  return outcomeR * RISK_PER_TRADE_USDT
+}
+
 export type PositionSizing = {
   riskAmount: number
   stopDistancePercent: number
@@ -37,6 +42,6 @@ export function calculatePositionSizing(entry: number, stop: number, availableBa
 
 export function calculateAccountSummary(outcomesR: Array<number | null | undefined>): AccountSummary {
   const closedTrades = outcomesR.filter((outcomeR): outcomeR is number => Number.isFinite(outcomeR)).length
-  const pnl = outcomesR.reduce<number>((sum, outcomeR) => sum + (typeof outcomeR === 'number' && Number.isFinite(outcomeR) ? outcomeR * RISK_PER_TRADE_USDT : 0), 0)
+  const pnl = outcomesR.reduce<number>((sum, outcomeR) => sum + (typeof outcomeR === 'number' && Number.isFinite(outcomeR) ? calculatePnlUsd(outcomeR) : 0), 0)
   return { balance: STARTING_BALANCE_USDT + pnl, pnl, closedTrades }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calculateAccountSummary, calculatePositionSizing } from './positionSizing'
+import { calculateAccountSummary, calculatePnlUsd, calculatePositionSizing } from './positionSizing'
 
 describe('position sizing', () => {
   it('sizes the notional so a technical stop risks exactly $2', () => {
@@ -19,5 +19,10 @@ describe('position sizing', () => {
 
   it('updates the virtual balance from closed trade results in R', () => {
     expect(calculateAccountSummary([3, -1, null, 0.5])).toEqual({ balance: 55, pnl: 5, closedTrades: 3 })
+  })
+
+  it('converts a closed trade result to its fixed-risk dollar PnL', () => {
+    expect(calculatePnlUsd(-1)).toBe(-2)
+    expect(calculatePnlUsd(2.25)).toBe(4.5)
   })
 })
