@@ -85,6 +85,8 @@ const PERIOD = 14
 const CONTEXT_MIN_STRENGTH = 35
 const STRONG_OPPOSING_STRENGTH = 55
 const BREAKOUT_RETEST_STOP_BUFFER_ATR = 0.4
+const BREAKOUT_RETEST_MAX_ENTRY_DISTANCE_ATR = 1.5
+const BREAKOUT_RETEST_MAX_RETEST_AGE_CANDLES = 1
 
 const clamp = (value: number, min = 0, max = 100) => Math.min(Math.max(value, min), max)
 
@@ -860,7 +862,7 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
     if (breakoutIndex < 0) continue
 
     let retestIndex = -1
-    for (let index = lastIndex - 2; index > breakoutIndex; index -= 1) {
+    for (let index = lastIndex; index > breakoutIndex; index -= 1) {
       const candle = candles[index]
       const isRetest = side === 'long'
         ? candle.low <= level.level + atr * 0.45 && candle.low >= level.level - atr * 0.6 && candle.close >= level.level - atr * 0.1
@@ -870,20 +872,22 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
         break
       }
     }
-    if (retestIndex < 0 || retestIndex >= lastIndex) continue
-    const responseCandles = candles.slice(retestIndex + 1)
-    const hasReversal = responseCandles.some((candle) => side === 'long'
-      ? candle.close > candle.open && candle.close >= level.level
-      : candle.close < candle.open && candle.close <= level.level)
+    if (retestIndex < 0 || lastIndex - retestIndex > BREAKOUT_RETEST_MAX_RETEST_AGE_CANDLES) continue
+    const hasFreshReversal = side === 'long'
+      ? current.close > current.open && current.close >= level.level
+      : current.close < current.open && current.close <= level.level
+    const candlesBeforeRetest = candles.slice(breakoutIndex, retestIndex)
+    if (!candlesBeforeRetest.length) continue
     const localExtreme = side === 'long'
-      ? Math.max(...candles.slice(breakoutIndex, retestIndex + 1).map((candle) => candle.high))
-      : Math.min(...candles.slice(breakoutIndex, retestIndex + 1).map((candle) => candle.low))
+      ? Math.max(...candlesBeforeRetest.map((candle) => candle.high))
+      : Math.min(...candlesBeforeRetest.map((candle) => candle.low))
     const remainsBelowLocalExtreme = side === 'long'
       ? current.high < localExtreme && current.close >= level.level
       : current.low > localExtreme && current.close <= level.level
-    if (!hasReversal || !remainsBelowLocalExtreme) continue
 
     const retest = candles[retestIndex]
+    const entryDistanceFromRetest = side === 'long' ? current.close - retest.low : retest.high - current.close
+    if (!hasFreshReversal || !remainsBelowLocalExtreme || entryDistanceFromRetest < 0 || entryDistanceFromRetest > atr * BREAKOUT_RETEST_MAX_ENTRY_DISTANCE_ATR) continue
     const stopBase = side === 'long' ? Math.min(retest.low, level.level) : Math.max(retest.high, level.level)
     const stopPrice = side === 'long' ? stopBase - atr * BREAKOUT_RETEST_STOP_BUFFER_ATR : stopBase + atr * BREAKOUT_RETEST_STOP_BUFFER_ATR
     const risk = side === 'long' ? current.close - stopPrice : stopPrice - current.close
@@ -895,7 +899,7 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
     return {
       setupType: 'breakout-retest',
       setupName: SETUP_META['breakout-retest'].name,
-      setupNote: `Пробой 15m уровня ${level.level.toPrecision(6)} · 5m ретест с реакцией, до пробоя локального экстремума · TP1: ближайшая из 3R и прошлого 15m экстремума · TP2 6R`,
+      setupNote: `Пробой 15m уровня ${level.level.toPrecision(6)} · свежий 5m отскок от экстремума ретеста (не дальше ${BREAKOUT_RETEST_MAX_ENTRY_DISTANCE_ATR} ATR) · TP1: ближайшая из 3R и прошлого 15m экстремума · TP2 6R`,
       stop: {
         side,
         entry: current.close,

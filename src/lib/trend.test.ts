@@ -467,6 +467,18 @@ describe('trend analysis', () => {
     expect(plan!.takeProfits[1].riskMultiple).toBe(6)
   })
 
+  it('rejects a breakout-retest ten 5m candles after the retest low', () => {
+    const candles = makeBreakoutRetestCandles()
+    candles[22] = { ...candles[22], open: 105.8, high: 106.2, low: 105.7, close: 106 }
+    candles[23] = { ...candles[23], open: 106, high: 106.4, low: 105.8, close: 106.1 }
+    for (let index = 24; index < 32; index += 1) candles.push({ time: 30000 + index * 300, open: 106, high: 106.5, low: 105.8, close: index === 31 ? 106.2 : 106, volume: 150 })
+
+    expect(calculateBreakoutRetestPlan(candles, 'strong-long', {
+      hourlyCandles: makeHourlyRetestRange(),
+      fifteenMinuteCandles: makeHourlyRetestRange(),
+    })).toBeNull()
+  })
+
   it('rejects a short breakout-retest without a confirmed multi-timeframe trend', () => {
     const fifteenMinuteCandles = mirrorCandles(makeHourlyRetestRange())
     const plan = calculateBreakoutRetestPlan(mirrorCandles(makeBreakoutRetestCandles()), 'flat', { hourlyCandles: mirrorCandles(makeHourlyRetestRange()), fifteenMinuteCandles })
