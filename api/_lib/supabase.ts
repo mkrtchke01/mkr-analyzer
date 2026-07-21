@@ -18,8 +18,11 @@ export async function supabaseRequest<T>(path: string, init: RequestInit = {}): 
     const details = (await response.text()).slice(0, 300)
     throw new Error(`Supabase request failed (${response.status}): ${details}`)
   }
-  if (response.status === 204) return undefined as T
-  return response.json() as Promise<T>
+  // PostgREST returns 201 with an empty body when Prefer: return=minimal is
+  // used. Treat every empty successful response as a valid mutation result.
+  const body = await response.text()
+  if (!body) return undefined as T
+  return JSON.parse(body) as T
 }
 
 export function getPublicSnapshotUrl(path: string | null) {
