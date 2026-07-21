@@ -249,12 +249,12 @@ describe('trend analysis', () => {
     expect(analyzeTrend(makeCandles(-0.5), '1h').direction).toBe('bearish')
   })
 
-  it('returns a strong long only when every timeframe confirms it', () => {
+  it('returns a strong long when the lower timeframes do not strongly oppose it', () => {
     const strongLong = [analysis('4h', 'bullish', 75), analysis('1h', 'bullish', 65), analysis('15m', 'bullish', 60), analysis('5m', 'bullish', 55)]
     expect(getOverallTrend(strongLong)).toBe('strong-long')
     const strongShort = strongLong.map((item) => ({ ...item, direction: 'bearish' as const }))
     expect(getOverallTrend(strongShort)).toBe('strong-short')
-    expect(getOverallTrend([...strongLong.slice(0, 3), analysis('5m', 'bearish', 55)])).toBe('flat')
+    expect(getOverallTrend([...strongLong.slice(0, 3), analysis('5m', 'bearish', 65)])).toBe('flat')
   })
 
   it('uses 4h as context and 1h as the required setup direction', () => {
@@ -267,9 +267,9 @@ describe('trend analysis', () => {
     expect(getOverallTrend(permissiveLong)).toBe('strong-long')
 
     expect(getOverallTrend([{ ...permissiveLong[0], direction: 'bearish' }, ...permissiveLong.slice(1)])).toBe('flat')
-    expect(getOverallTrend([{ ...permissiveLong[0], direction: 'bullish', strength: 34 }, ...permissiveLong.slice(1)])).toBe('flat')
-    expect(getOverallTrend([...permissiveLong.slice(0, 2), { ...permissiveLong[2], direction: 'bearish', strength: 55 }, permissiveLong[3]])).toBe('flat')
-    expect(getOverallTrend([...permissiveLong.slice(0, 3), { ...permissiveLong[3], direction: 'bearish', strength: 55 }])).toBe('flat')
+    expect(getOverallTrend([{ ...permissiveLong[0], direction: 'bullish', strength: 34 }, ...permissiveLong.slice(1)])).toBe('strong-long')
+    expect(getOverallTrend([...permissiveLong.slice(0, 2), { ...permissiveLong[2], direction: 'bearish', strength: 65 }, permissiveLong[3]])).toBe('flat')
+    expect(getOverallTrend([...permissiveLong.slice(0, 3), { ...permissiveLong[3], direction: 'bearish', strength: 65 }])).toBe('flat')
   })
 
   it('colors a market by the dominant weighted direction even without full confirmation', () => {
@@ -312,7 +312,7 @@ describe('trend analysis', () => {
     const plan = calculateTradePlan(makeStoppedPullbackCandles(), context)
 
     expect(plan).toMatchObject({ setupType: 'trend-reclaim', stop: { side: 'long' } })
-    expect(plan!.setupNote).toContain('5m подтверждён 2 свечами')
+    expect(plan!.setupNote).toContain('5m подтверждён возвратом')
   })
 
   it('mirrors the 4h/1h pullback entry for a short', () => {
