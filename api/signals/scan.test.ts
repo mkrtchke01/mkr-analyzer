@@ -17,7 +17,7 @@ vi.mock('../../src/lib/signalSnapshot.js', () => ({
   createSignalSnapshot: vi.fn(() => '<svg />'),
 }))
 
-const { persistPlan, selectStrongestPlan } = await import('./scan')
+const { isLegacyBreakoutRetestSignal, persistPlan, selectStrongestPlan } = await import('./scan')
 
 const plan: TradePlan = {
   setupType: 'breakout-retest',
@@ -44,7 +44,7 @@ describe('signal persistence', () => {
     await expect(persistPlan('AXTIUSDT', plan, strongAnalyses, [candle])).resolves.toBe(true)
 
     const insertPayload = JSON.parse(mocks.supabaseRequest.mock.calls[0][1].body)
-    expect(insertPayload).toMatchObject({ symbol: 'AXTIUSDT', snapshot_path: null, setup_type: 'breakout-retest', plan_snapshot: { signalStrength: { score: 10 }, positionSizing: { riskAmount: 2 } } })
+    expect(insertPayload).toMatchObject({ symbol: 'AXTIUSDT', snapshot_path: null, setup_type: 'breakout-retest', plan_snapshot: { breakoutRetestRuleVersion: 2, signalStrength: { score: 10 }, positionSizing: { riskAmount: 2 } } })
     expect(mocks.supabaseRequest.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false)
     expect(mocks.uploadSnapshot).toHaveBeenCalledOnce()
   })
@@ -68,5 +68,11 @@ describe('signal persistence', () => {
   it('does not persist a setup below the strength threshold', async () => {
     await expect(persistPlan('AXTIUSDT', { ...plan, takeProfits: [{ id: 'TP1', price: 102, share: 100, riskMultiple: 1 }] }, [], [candle])).resolves.toBe(false)
     expect(mocks.supabaseRequest).not.toHaveBeenCalled()
+  })
+
+  it('expires only breakout-retest snapshots created before the strict rule version', () => {
+    expect(isLegacyBreakoutRetestSignal({ setup_type: 'breakout-retest', plan_snapshot: null })).toBe(true)
+    expect(isLegacyBreakoutRetestSignal({ setup_type: 'breakout-retest', plan_snapshot: { breakoutRetestRuleVersion: 2 } })).toBe(false)
+    expect(isLegacyBreakoutRetestSignal({ setup_type: 'trend-reclaim', plan_snapshot: null })).toBe(false)
   })
 })

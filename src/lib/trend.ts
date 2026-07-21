@@ -849,17 +849,12 @@ function buildDivergenceTargets(entry: number, stopPrice: number, side: 'long' |
   }))
 }
 
-function buildBreakoutRetestTargets(entry: number, stopPrice: number, side: 'long' | 'short', fifteenMinuteCandles: Candle[]): TakeProfitLevel[] | undefined {
+function buildBreakoutRetestTargets(entry: number, stopPrice: number, side: 'long' | 'short'): TakeProfitLevel[] | undefined {
   const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
   if (risk <= 0) return undefined
 
   const direction = side === 'long' ? 1 : -1
-  const targetAtThreeR = entry + direction * risk * 3
-  const priorFifteenMinuteExtreme = findFifteenMinuteTargets(fifteenMinuteCandles, side, entry).at(0)
-  const priorExtremeIsCloser = priorFifteenMinuteExtreme !== undefined && (side === 'long'
-    ? priorFifteenMinuteExtreme < targetAtThreeR
-    : priorFifteenMinuteExtreme > targetAtThreeR)
-  const firstTarget = priorExtremeIsCloser ? priorFifteenMinuteExtreme : targetAtThreeR
+  const firstTarget = entry + direction * risk * 3
   const secondTarget = entry + direction * risk * 6
 
   return [firstTarget, secondTarget].map((price, index) => ({
@@ -969,13 +964,13 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
     const risk = side === 'long' ? current.close - stopPrice : stopPrice - current.close
     if (risk <= 0) continue
 
-    const takeProfits = buildBreakoutRetestTargets(current.close, stopPrice, side, context.fifteenMinuteCandles)
+    const takeProfits = buildBreakoutRetestTargets(current.close, stopPrice, side)
     if (!takeProfits) continue
 
     return {
       setupType: 'breakout-retest',
       setupName: SETUP_META['breakout-retest'].name,
-      setupNote: `Пробой 15m уровня ${level.level.toPrecision(6)} · свежий 5m отскок от экстремума ретеста (не дальше ${BREAKOUT_RETEST_MAX_ENTRY_DISTANCE_ATR} ATR) · TP1: ближайшая из 3R и прошлого 15m экстремума · TP2 6R`,
+      setupNote: `Импульсный пробой 15m уровня ${level.level.toPrecision(6)} · свежий 5m отскок от экстремума ретеста (не дальше ${BREAKOUT_RETEST_MAX_ENTRY_DISTANCE_ATR} ATR) · TP1 3R · TP2 6R`,
       triggerLevel: { price: level.level, label: 'BR УРОВЕНЬ 15m' },
       stop: {
         side,

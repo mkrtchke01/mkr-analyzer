@@ -11,6 +11,7 @@ import { isAuthorizedCronRequest, supabaseRequest, uploadSnapshot } from '../_li
 const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
 const MAX_CONCURRENCY = 5
 const MINIMUM_SIGNAL_STRENGTH = 7
+const BREAKOUT_RETEST_RULE_VERSION = 2
 
 type StoredSignal = {
   id: string
@@ -29,6 +30,7 @@ type StoredSignal = {
   detected_candle_time: number
   last_checked_candle_time: number
   expires_at: string
+  plan_snapshot?: { breakoutRetestRuleVersion?: number } | null
 }
 
 type ScannerRun = { id: string }
@@ -138,8 +140,24 @@ async function patchSignal(id: string, values: Record<string, unknown>) {
   })
 }
 
+export function isLegacyBreakoutRetestSignal(signal: Pick<StoredSignal, 'setup_type' | 'plan_snapshot'>) {
+  return signal.setup_type === 'breakout-retest' && signal.plan_snapshot?.breakoutRetestRuleVersion !== BREAKOUT_RETEST_RULE_VERSION
+}
+
 async function monitorSignal(signal: StoredSignal) {
   const candles = closedCandles(await getCandles(signal.symbol, '5m', 200))
+  if (isLegacyBreakoutRetestSignal(signal)) {
+    const last = candles.at(-1)
+    if (!last) return
+    await patchSignal(signal.id, {
+      status: 'expired',
+      closed_at: new Date().toISOString(),
+      last_price: last.close,
+      last_checked_candle_time: last.time,
+    })
+    await createEvent(signal.id, 'expired', last, { reason: 'Breakout-retest signal invalidated after stricter breakout and fixed 3R target rules' })
+    return
+  }
   const signalState: ManagedSignal = {
     side: signal.side,
     status: signal.status,
@@ -195,7 +213,12 @@ export async function persistPlan(symbol: string, plan: TradePlan, analyses: Tre
   if (funding && funding.openPositions >= MAX_OPEN_POSITIONS) return false
   const positionSizing = calculatePositionSizing(plan.stop.entry, plan.stop.price, funding?.availableBalance ?? STARTING_BALANCE_USDT, funding?.equity ?? STARTING_BALANCE_USDT)
   if (!positionSizing) return false
-  const scoredPlan = { ...plan, signalStrength, positionSizing }
+  const scoredPlan = {
+    ...plan,
+    ...(plan.setupType === 'breakout-retest' ? { breakoutRetestRuleVersion: BREAKOUT_RETEST_RULE_VERSION } : {}),
+    signalStrength,
+    positionSizing,
+  }
   const fingerprint = `${symbol}:${plan.setupType}:${plan.stop.side}:${plan.signalKey ?? confirmationCandle.time}`
   const detectedAt = new Date(confirmationCandle.time * 1000).toISOString()
   const payload = {
