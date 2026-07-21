@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateAtr, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, hasEnoughBreakoutLevelTouches, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateAtr, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, hasEnoughBreakoutLevelTouches, selectPrimaryRetestLevel, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -452,6 +452,11 @@ describe('trend analysis', () => {
     expect(plan!.takeProfits[0].riskMultiple).toBeLessThanOrEqual(3)
     expect(plan!.takeProfits[1].riskMultiple).toBe(6)
     expect(plan!.stop.price).toBeLessThan(104.8)
+  })
+
+  it('uses the base 15m support or resistance instead of a later micro-level', () => {
+    expect(selectPrimaryRetestLevel([{ level: 1_928, side: 'long' as const }, { level: 1_941, side: 'long' as const }], 'long')?.level).toBe(1_928)
+    expect(selectPrimaryRetestLevel([{ level: 1_928, side: 'short' as const }, { level: 1_941, side: 'short' as const }], 'short')?.level).toBe(1_941)
   })
 
   it('uses the nearer prior 15m high instead of 3R for the first breakout-retest target', () => {

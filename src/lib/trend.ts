@@ -87,6 +87,7 @@ const STRONG_OPPOSING_STRENGTH = 55
 const BREAKOUT_RETEST_STOP_BUFFER_ATR = 0.4
 const BREAKOUT_RETEST_MAX_ENTRY_DISTANCE_ATR = 1.5
 const BREAKOUT_RETEST_MAX_RETEST_AGE_CANDLES = 1
+const BREAKOUT_RETEST_LEVEL_TOUCH_ATR = 0.15
 
 const clamp = (value: number, min = 0, max = 100) => Math.min(Math.max(value, min), max)
 
@@ -520,6 +521,13 @@ function findRecentFifteenMinuteRetestLevels(candles: Candle[]): RetestLevel[] {
   return levels
 }
 
+export function selectPrimaryRetestLevel<T extends { level: number; side: 'long' | 'short' }>(levels: T[], side: 'long' | 'short'): T | undefined {
+  return levels
+    .filter((level) => level.side === side)
+    .sort((first, second) => side === 'long' ? first.level - second.level : second.level - first.level)
+    .at(0)
+}
+
 function findHourlyTargets(candles: Candle[], side: 'long' | 'short', entry: number): number[] {
   const atr = calculateAtr(candles)
   if (!atr) return []
@@ -846,7 +854,12 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
   const lastIndex = candles.length - 1
   const current = candles[lastIndex]
   const side = trend === 'strong-long' ? 'long' : 'short'
-  for (const level of findRecentFifteenMinuteRetestLevels(context.fifteenMinuteCandles).filter((candidate) => candidate.side === side)) {
+  // A higher micro-level after a pump gives a late entry with a meaningless stop.
+  // For long we keep the base support of the 15m move; for short, the base resistance.
+  const primaryLevel = selectPrimaryRetestLevel(findRecentFifteenMinuteRetestLevels(context.fifteenMinuteCandles), side)
+  if (!primaryLevel) return null
+
+  for (const level of [primaryLevel]) {
     let breakoutIndex = -1
     for (let index = lastIndex - 1; index >= Math.max(1, lastIndex - 72); index -= 1) {
       const candle = candles[index]
@@ -865,8 +878,8 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
     for (let index = lastIndex; index > breakoutIndex; index -= 1) {
       const candle = candles[index]
       const isRetest = side === 'long'
-        ? candle.low <= level.level + atr * 0.45 && candle.low >= level.level - atr * 0.6 && candle.close >= level.level - atr * 0.1
-        : candle.high >= level.level - atr * 0.45 && candle.high <= level.level + atr * 0.6 && candle.close <= level.level + atr * 0.1
+        ? candle.low <= level.level + atr * BREAKOUT_RETEST_LEVEL_TOUCH_ATR && candle.low >= level.level - atr * 0.6 && candle.close >= level.level - atr * 0.1
+        : candle.high >= level.level - atr * BREAKOUT_RETEST_LEVEL_TOUCH_ATR && candle.high <= level.level + atr * 0.6 && candle.close <= level.level + atr * 0.1
       if (isRetest) {
         retestIndex = index
         break
