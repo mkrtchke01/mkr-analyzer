@@ -491,6 +491,8 @@ type HourlyRange = { level: number; height: number; touches: number; endTime: nu
 
 type SignificantHourlyLevel = { level: number; kind: 'high' | 'low'; touches: number; reactionAtr: number; time: number }
 
+type CleanStructuralLevel = SignificantHourlyLevel & { endTime: number }
+
 function hasMeaningfulReaction(candles: Candle[], index: number, kind: 'high' | 'low', atr: number, until = candles.length): boolean {
   const after = candles.slice(index + 1, until)
   if (!after.length) return false
@@ -501,42 +503,100 @@ function hasMeaningfulReaction(candles: Candle[], index: number, kind: 'high' | 
   return reaction >= atr * 0.75
 }
 
+function getTouchGroups(candles: Candle[], indices: number[]) {
+  return indices.reduce<number[][]>((groups, index) => {
+    const current = groups.at(-1)
+    if (!current || index - current.at(-1)! > 2) groups.push([index])
+    else current.push(index)
+    return groups
+  }, [])
+}
+
+/**
+ * A structural level is a reaction zone, not merely a price that happened to
+ * be visited often.  Contacts must be separated by a real reaction and price
+ * may not repeatedly close through the zone.  This deliberately rejects the
+ * kind of "sawn through" 15m level that produced late BR entries.
+ */
+function assessCleanStructuralLevel(candles: Candle[], index: number, kind: 'high' | 'low', atr: number): CleanStructuralLevel | undefined {
+  const level = kind === 'high' ? candles[index].high : candles[index].low
+  const after = candles.slice(index)
+  const touches = after
+    .map((candle, offset) => ({ candle, index: index + offset }))
+    .filter(({ candle }) => kind === 'high'
+      ? candle.high >= level - atr * 0.25 && candle.high <= level + atr * 0.35 && candle.close <= level + atr * 0.2
+      : candle.low <= level + atr * 0.25 && candle.low >= level - atr * 0.35 && candle.close >= level - atr * 0.2)
+    .map(({ index: touchIndex }) => touchIndex)
+  const touchGroups = getTouchGroups(candles, touches)
+  if (touchGroups.length < 2) return undefined
+
+  // Every completed contact must be followed by a visible move away from the
+  // zone before the next contact.  Several adjacent candles at the same price
+  // are one interaction, not several confirmations.
+  for (let groupIndex = 0; groupIndex < touchGroups.length - 1; groupIndex += 1) {
+    const reactionStart = touchGroups[groupIndex].at(-1)! + 1
+    const reactionEnd = touchGroups[groupIndex + 1][0]
+    const reactionCandles = candles.slice(reactionStart, reactionEnd)
+    if (!reactionCandles.length) return undefined
+    const reaction = kind === 'high'
+      ? level - Math.min(...reactionCandles.map((candle) => candle.low))
+      : Math.max(...reactionCandles.map((candle) => candle.high)) - level
+    if (reaction < atr * 0.75) return undefined
+  }
+
+  const invalidatingCloses = after.filter((candle) => kind === 'high'
+    ? candle.close > level + atr * 0.35
+    : candle.close < level - atr * 0.35).length
+  const closesInsideZone = after.filter((candle) => Math.abs(candle.close - level) <= atr * 0.2).length
+  const bodyCrossesZone = after.filter((candle) => kind === 'high'
+    ? (candle.open < level - atr * 0.1 && candle.close > level + atr * 0.1) || (candle.open > level + atr * 0.1 && candle.close < level - atr * 0.1)
+    : (candle.open > level + atr * 0.1 && candle.close < level - atr * 0.1) || (candle.open < level - atr * 0.1 && candle.close > level + atr * 0.1)).length
+  if (invalidatingCloses > 1 || closesInsideZone > 3 || bodyCrossesZone > 0) return undefined
+
+  const reaction = kind === 'high'
+    ? level - Math.min(...after.map((candle) => candle.low))
+    : Math.max(...after.map((candle) => candle.high)) - level
+  return {
+    level,
+    kind,
+    touches: touchGroups.length,
+    reactionAtr: reaction / atr,
+    time: candles[index].time,
+    endTime: candles[touchGroups.at(-1)!.at(-1)!].time,
+  }
+}
+
+function findCleanStructuralHourlyLevels(candles: Candle[], kind: 'high' | 'low'): CleanStructuralLevel[] {
+  const atr = calculateAtr(candles)
+  if (!atr) return []
+  const levels: CleanStructuralLevel[] = []
+  for (let index = candles.length - 3; index >= Math.max(2, candles.length - 100); index -= 1) {
+    if (!isSwingAt(candles, index, kind)) continue
+    const level = assessCleanStructuralLevel(candles, index, kind, atr)
+    if (!level || levels.some((candidate) => Math.abs(candidate.level - level.level) < atr * 0.2)) continue
+    levels.push(level)
+  }
+  return levels
+}
+
 function findHourlyRangeBeforeBreakout(candles: Candle[], side: 'long' | 'short', endIndex = candles.length - 1, minTouches = 1): HourlyRange | undefined {
   const atr = calculateAtr(candles)
   if (!atr || candles.length < 20) return undefined
+  const kind = side === 'long' ? 'high' : 'low'
+  const candidates = findCleanStructuralHourlyLevels(candles.slice(0, endIndex + 1), kind)
+    .filter((level) => hasEnoughBreakoutLevelTouches(level.touches, minTouches))
 
-  const levelKind = side === 'long' ? 'high' : 'low'
-  let best: (HourlyRange & { score: number }) | undefined
-
-  for (let size = 3; size <= 16; size += 1) {
-    const start = endIndex - size + 1
-    if (start < 5) continue
-    const range = candles.slice(start, endIndex + 1)
-    const rangeHigh = Math.max(...range.map((candle) => candle.high))
-    const rangeLow = Math.min(...range.map((candle) => candle.low))
-    const height = rangeHigh - rangeLow
+  for (const candidate of candidates) {
+    const structure = candles.slice(Math.max(0, candles.findIndex((candle) => candle.time === candidate.endTime) - 12), endIndex + 1)
+    const boundary = side === 'long'
+      ? Math.max(...structure.map((candle) => candle.high))
+      : Math.min(...structure.map((candle) => candle.low))
+    if (Math.abs(boundary - candidate.level) > atr * 0.35) continue
+    const height = Math.max(...structure.map((candle) => candle.high)) - Math.min(...structure.map((candle) => candle.low))
     if (height < atr * 0.5 || height > atr * 3.5) continue
-
-    for (let index = start - 3; index >= Math.max(2, start - 100); index -= 1) {
-      if (!isSwingAt(candles, index, levelKind) || !hasMeaningfulReaction(candles, index, levelKind, atr, start)) continue
-      const level = levelKind === 'high' ? candles[index].high : candles[index].low
-      const boundary = side === 'long' ? rangeHigh : rangeLow
-      if (Math.abs(boundary - level) > atr * 0.35) continue
-
-      const touches = range.filter((candle) => side === 'long'
-        ? candle.high >= level - atr * 0.35 && candle.close <= level + atr * 0.2
-        : candle.low <= level + atr * 0.35 && candle.close >= level - atr * 0.2).length
-      // Один подтверждённый контакт с уровнем достаточен для пробойных сценариев:
-      // после импульса рынок часто не успевает сформировать второе касание до выхода.
-      if (!hasEnoughBreakoutLevelTouches(touches, minTouches)) continue
-
-      const score = touches * 10 + size
-      if (!best || score > best.score) best = { level, height, touches, endTime: candles[endIndex].time, score }
-      break
-    }
+    return { level: candidate.level, height, touches: candidate.touches, endTime: candidate.endTime }
   }
-
-  return best
+  return undefined
 }
 
 export function hasEnoughBreakoutLevelTouches(touches: number, minTouches = 1): boolean {
@@ -544,29 +604,7 @@ export function hasEnoughBreakoutLevelTouches(touches: number, minTouches = 1): 
 }
 
 function findSignificantHourlyLevels(candles: Candle[], kind: 'high' | 'low'): SignificantHourlyLevel[] {
-  const atr = calculateAtr(candles)
-  if (!atr) return []
-  const levels: SignificantHourlyLevel[] = []
-
-  for (let index = candles.length - 3; index >= Math.max(2, candles.length - 100); index -= 1) {
-    if (!isSwingAt(candles, index, kind)) continue
-    const level = kind === 'high' ? candles[index].high : candles[index].low
-    const after = candles.slice(index + 1)
-    const reaction = kind === 'high'
-      ? level - Math.min(...after.map((candle) => candle.low))
-      : Math.max(...after.map((candle) => candle.high)) - level
-    const reactionAtr = reaction / atr
-    const touches = after.filter((candle) => kind === 'high'
-      ? candle.high >= level - atr * 0.25 && candle.close <= level + atr * 0.15
-      : candle.low <= level + atr * 0.25 && candle.close >= level - atr * 0.15).length
-    const invalidatingCloses = after.filter((candle) => kind === 'high'
-      ? candle.close > level + atr * 0.35
-      : candle.close < level - atr * 0.35).length
-    if ((touches < 2 && reactionAtr < 1.5) || invalidatingCloses > 1) continue
-    if (!levels.some((candidate) => Math.abs(candidate.level - level) < atr * 0.2)) levels.push({ level, kind, touches, reactionAtr, time: candles[index].time })
-  }
-
-  return levels
+  return findCleanStructuralHourlyLevels(candles, kind)
 }
 
 type RetestLevel = HourlyRange & { side: 'long' | 'short' }
@@ -959,19 +997,19 @@ export function calculateDivergenceReversalPlan(context?: DivergenceReversalCont
 }
 
 export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTrend, context?: LevelBreakoutContext): TradePlan | null {
-  if (trend === 'flat' || candles.length < PERIOD + 10 || !context?.fifteenMinuteCandles) return null
+  if (trend === 'flat' || candles.length < PERIOD + 10 || !context?.hourlyCandles) return null
   const atr = calculateAtr(candles)
   if (!atr) return null
 
   const lastIndex = candles.length - 1
   const current = candles[lastIndex]
   const side = trend === 'strong-long' ? 'long' : 'short'
-  // A higher micro-level after a pump gives a late entry with a meaningless stop.
-  // For long we keep the base support of the 15m move; for short, the base resistance.
-  const primaryLevel = selectPrimaryRetestLevel(findRecentFifteenMinuteRetestLevels(context.fifteenMinuteCandles), side)
-  if (!primaryLevel) return null
-
-  for (const level of [primaryLevel]) {
+  // 5m determines the retest entry only.  The broken boundary itself must be
+  // a clean 1h reaction level; a repeatedly traded 15m micro-level is not a
+  // structural breakout and must never create a BR signal.
+  const levelKind = side === 'long' ? 'high' : 'low'
+  const structuralLevels = findCleanStructuralHourlyLevels(context.hourlyCandles, levelKind)
+  for (const level of structuralLevels) {
     let breakoutIndex = -1
     for (let index = lastIndex - 1; index >= Math.max(1, lastIndex - 72); index -= 1) {
       const candle = candles[index]
@@ -1026,9 +1064,9 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
     return {
       setupType: 'breakout-retest',
       setupName: SETUP_META['breakout-retest'].name,
-      setupNote: `Импульсный пробой 15m уровня ${level.level.toPrecision(6)} · свежий 5m отскок от экстремума ретеста (не дальше ${BREAKOUT_RETEST_MAX_ENTRY_DISTANCE_ATR} ATR) · TP1 3R · TP2 6R`,
-      triggerLevel: { price: level.level, label: 'BR УРОВЕНЬ 15m' },
-      chartLevels: [{ price: level.level, label: 'BR УРОВЕНЬ 15m', color: '#f2c15d' }],
+      setupNote: `Импульсный пробой чистого 1h уровня ${level.level.toPrecision(6)} (${level.touches} реакции) · свежий 5m отскок от экстремума ретеста (не дальше ${BREAKOUT_RETEST_MAX_ENTRY_DISTANCE_ATR} ATR) · TP1 3R · TP2 6R`,
+      triggerLevel: { price: level.level, label: 'BR УРОВЕНЬ 1h' },
+      chartLevels: [{ price: level.level, label: 'BR УРОВЕНЬ 1h', color: '#f2c15d' }],
       stop: {
         side,
         entry: current.close,

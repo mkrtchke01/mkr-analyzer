@@ -521,7 +521,7 @@ describe('trend analysis', () => {
     expect(plan).toBeNull()
   })
 
-  it('keeps a qualified 15m breakout-retest with TP1 at 3R and TP2 at 6R', () => {
+  it('keeps a qualified 1h structural breakout-retest with TP1 at 3R and TP2 at 6R', () => {
     const fifteenMinuteCandles = makeHourlyRetestRange()
     fifteenMinuteCandles[50] = { ...fifteenMinuteCandles[50], high: 120 }
     const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'strong-long', {
@@ -530,8 +530,8 @@ describe('trend analysis', () => {
     })
 
     expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'long' } })
-    expect(plan!.triggerLevel).toMatchObject({ label: 'BR УРОВЕНЬ 15m' })
-    expect(plan!.chartLevels).toEqual([{ price: plan!.triggerLevel!.price, label: 'BR УРОВЕНЬ 15m', color: '#f2c15d' }])
+    expect(plan!.triggerLevel).toMatchObject({ label: 'BR УРОВЕНЬ 1h' })
+    expect(plan!.chartLevels).toEqual([{ price: plan!.triggerLevel!.price, label: 'BR УРОВЕНЬ 1h', color: '#f2c15d' }])
     expect(plan!.takeProfits).toHaveLength(2)
     expect(plan!.takeProfits[0].riskMultiple).toBe(3)
     expect(plan!.takeProfits[1].riskMultiple).toBe(6)
@@ -548,6 +548,25 @@ describe('trend analysis', () => {
     expect(countPreBreakoutLevelTouches(fifteenMinuteCandles, 70, 'high', 2)).toBe(2)
     fifteenMinuteCandles[69] = { ...fifteenMinuteCandles[69], high: 103.8 }
     expect(countPreBreakoutLevelTouches(fifteenMinuteCandles, 70, 'high', 2)).toBe(1)
+  })
+
+  it('rejects a breakout-retest when the candidate 1h level was repeatedly chopped through', () => {
+    const hourlyCandles = makeHourlyRetestRange()
+    for (let index = 74; index < hourlyCandles.length; index += 1) {
+      const crossesUp = index % 2 === 0
+      hourlyCandles[index] = {
+        ...hourlyCandles[index],
+        open: crossesUp ? 104.5 : 105.6,
+        high: 106.2,
+        low: 104.2,
+        close: crossesUp ? 105.6 : 104.5,
+      }
+    }
+
+    expect(calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'strong-long', {
+      hourlyCandles,
+      fifteenMinuteCandles: makeHourlyRetestRange(),
+    })).toBeNull()
   })
 
   it('rejects a sideways drift through the level without an impulse candle', () => {

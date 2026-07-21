@@ -11,7 +11,9 @@ import { isAuthorizedCronRequest, supabaseRequest, uploadSnapshot } from '../_li
 const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
 const MAX_CONCURRENCY = 5
 const MINIMUM_SIGNAL_STRENGTH = 7
-const BREAKOUT_RETEST_RULE_VERSION = 2
+const BREAKOUT_RETEST_RULE_VERSION = 3
+const LEVEL_BREAKOUT_RULE_VERSION = 2
+const FALSE_BREAKOUT_RULE_VERSION = 2
 const TREND_RECLAIM_RULE_VERSION = 2
 
 type StoredSignal = {
@@ -31,7 +33,7 @@ type StoredSignal = {
   detected_candle_time: number
   last_checked_candle_time: number
   expires_at: string
-  plan_snapshot?: { breakoutRetestRuleVersion?: number, trendReclaimRuleVersion?: number } | null
+  plan_snapshot?: { breakoutRetestRuleVersion?: number, levelBreakoutRuleVersion?: number, falseBreakoutRuleVersion?: number, trendReclaimRuleVersion?: number } | null
 }
 
 type ScannerRun = { id: string }
@@ -143,6 +145,8 @@ async function patchSignal(id: string, values: Record<string, unknown>) {
 
 export function requiresSetupRuleRevalidation(signal: Pick<StoredSignal, 'setup_type' | 'plan_snapshot'>) {
   if (signal.setup_type === 'breakout-retest') return signal.plan_snapshot?.breakoutRetestRuleVersion !== BREAKOUT_RETEST_RULE_VERSION
+  if (signal.setup_type === 'level-breakout') return signal.plan_snapshot?.levelBreakoutRuleVersion !== LEVEL_BREAKOUT_RULE_VERSION
+  if (signal.setup_type === 'false-breakout') return signal.plan_snapshot?.falseBreakoutRuleVersion !== FALSE_BREAKOUT_RULE_VERSION
   if (signal.setup_type === 'trend-reclaim') return signal.plan_snapshot?.trendReclaimRuleVersion !== TREND_RECLAIM_RULE_VERSION
   return false
 }
@@ -219,6 +223,8 @@ export async function persistPlan(symbol: string, plan: TradePlan, analyses: Tre
   const scoredPlan = {
     ...plan,
     ...(plan.setupType === 'breakout-retest' ? { breakoutRetestRuleVersion: BREAKOUT_RETEST_RULE_VERSION } : {}),
+    ...(plan.setupType === 'level-breakout' ? { levelBreakoutRuleVersion: LEVEL_BREAKOUT_RULE_VERSION } : {}),
+    ...(plan.setupType === 'false-breakout' ? { falseBreakoutRuleVersion: FALSE_BREAKOUT_RULE_VERSION } : {}),
     ...(plan.setupType === 'trend-reclaim' ? { trendReclaimRuleVersion: TREND_RECLAIM_RULE_VERSION } : {}),
     signalStrength,
     positionSizing,

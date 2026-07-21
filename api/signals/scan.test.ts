@@ -44,7 +44,7 @@ describe('signal persistence', () => {
     await expect(persistPlan('AXTIUSDT', plan, strongAnalyses, [candle])).resolves.toBe(true)
 
     const insertPayload = JSON.parse(mocks.supabaseRequest.mock.calls[0][1].body)
-    expect(insertPayload).toMatchObject({ symbol: 'AXTIUSDT', snapshot_path: null, setup_type: 'breakout-retest', plan_snapshot: { breakoutRetestRuleVersion: 2, signalStrength: { score: 10 }, positionSizing: { riskAmount: 2 } } })
+    expect(insertPayload).toMatchObject({ symbol: 'AXTIUSDT', snapshot_path: null, setup_type: 'breakout-retest', plan_snapshot: { breakoutRetestRuleVersion: 3, signalStrength: { score: 10 }, positionSizing: { riskAmount: 2 } } })
     expect(mocks.supabaseRequest.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false)
     expect(mocks.uploadSnapshot).toHaveBeenCalledOnce()
   })
@@ -72,9 +72,12 @@ describe('signal persistence', () => {
 
   it('expires strategy snapshots created before their stricter entry rules', () => {
     expect(requiresSetupRuleRevalidation({ setup_type: 'breakout-retest', plan_snapshot: null })).toBe(true)
-    expect(requiresSetupRuleRevalidation({ setup_type: 'breakout-retest', plan_snapshot: { breakoutRetestRuleVersion: 2 } })).toBe(false)
+    expect(requiresSetupRuleRevalidation({ setup_type: 'breakout-retest', plan_snapshot: { breakoutRetestRuleVersion: 3 } })).toBe(false)
     expect(requiresSetupRuleRevalidation({ setup_type: 'trend-reclaim', plan_snapshot: null })).toBe(true)
     expect(requiresSetupRuleRevalidation({ setup_type: 'trend-reclaim', plan_snapshot: { trendReclaimRuleVersion: 2 } })).toBe(false)
-    expect(requiresSetupRuleRevalidation({ setup_type: 'false-breakout', plan_snapshot: null })).toBe(false)
+    expect(requiresSetupRuleRevalidation({ setup_type: 'level-breakout', plan_snapshot: null })).toBe(true)
+    expect(requiresSetupRuleRevalidation({ setup_type: 'level-breakout', plan_snapshot: { levelBreakoutRuleVersion: 2 } })).toBe(false)
+    expect(requiresSetupRuleRevalidation({ setup_type: 'false-breakout', plan_snapshot: null })).toBe(true)
+    expect(requiresSetupRuleRevalidation({ setup_type: 'false-breakout', plan_snapshot: { falseBreakoutRuleVersion: 2 } })).toBe(false)
   })
 })
