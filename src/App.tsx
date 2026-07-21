@@ -58,7 +58,7 @@ export default function App() {
   const [setupStrengthSort, setSetupStrengthSort] = useState<TrendSort>('none')
   const [setupScanning, setSetupScanning] = useState(false)
   const [savedOpenSignals, setSavedOpenSignals] = useState<SavedSignal[]>([])
-  const [accountSummary, setAccountSummary] = useState<AccountSummary>({ balance: STARTING_BALANCE_USDT, pnl: 0, closedTrades: 0 })
+  const [accountSummary, setAccountSummary] = useState<AccountSummary>({ balance: STARTING_BALANCE_USDT, equity: STARTING_BALANCE_USDT, lockedMargin: 0, pnl: 0, closedTrades: 0 })
   const [historyOpen, setHistoryOpen] = useState(false)
   const [marketInfo, setMarketInfo] = useState<MarketInfoSignal[]>([])
   const [rsiDivergencesBySymbol, setRsiDivergencesBySymbol] = useState<Record<string, Array<DivergenceInfo & { id: string }>>>({})
@@ -356,10 +356,10 @@ export default function App() {
         <header className="topbar">
           <div className="brand"><span className="brand-mark">M</span> MKR <span>ANALYZER</span></div>
           <div className="market-mode"><span className="live-dot" /> PERPETUAL · BYBIT</div>
-          <div className="account-balance" title="Старт $50. Баланс меняется по закрытым сигналам: результат в R × риск $2.">
-            <span>БАЛАНС</span>
+          <div className="account-balance" title="Свободный баланс: маржа открытых позиций резервируется сразу, а после закрытия возвращается вместе с результатом сделки.">
+            <span>СВОБОДНО</span>
             <strong>${accountSummary.balance.toFixed(2)}</strong>
-            <small className={accountSummary.pnl >= 0 ? 'positive' : 'negative'}>{accountSummary.pnl >= 0 ? '+' : ''}{accountSummary.pnl.toFixed(2)} · РИСК ${RISK_PER_TRADE_USDT}</small>
+            <small className={accountSummary.pnl >= 0 ? 'positive' : 'negative'}>{accountSummary.pnl >= 0 ? '+' : ''}{accountSummary.pnl.toFixed(2)} · МАРЖА ${accountSummary.lockedMargin.toFixed(2)}</small>
           </div>
           <button className="history-trigger" onClick={() => setHistoryOpen(true)}>История <b>{savedOpenSignals.length}</b></button>
           <div className="timeframe-selector" aria-label="Таймфрейм графика">
@@ -392,7 +392,7 @@ export default function App() {
               </div>
             </div>
           </div>
-          <TradePlans tradePlans={fixedTradePlans} availableBalance={accountSummary.balance} />
+          <TradePlans tradePlans={fixedTradePlans} availableBalance={accountSummary.balance} accountEquity={accountSummary.equity} />
           <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} priceTickSize={selectedMarket?.tickSize} pricePrecision={selectedMarket?.pricePrecision} tradePlans={fixedTradePlans} manualLevels={manualLevels} rsiDivergences={rsiDivergences} riskRewards={riskRewards} focusTime={chartFocusTime} drawingMode={drawingMode} drawingAnchor={drawingAnchor} onDrawingPoint={addDrawingPoint} onUpdateRiskReward={updateRiskReward} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
           <footer className="chart-footer">
             <span>Свечи · {timeframe}</span>

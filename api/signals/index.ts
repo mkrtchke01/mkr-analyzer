@@ -1,16 +1,26 @@
 import { getPublicSnapshotUrl, supabaseRequest } from '../_lib/supabase.js'
 import { calculateStrategyStats, type StrategyStatsSignal } from '../../src/lib/strategyStats.js'
 import { calculateSignalStrength } from '../../src/lib/signalStrength.js'
-
-// $50 is the account baseline at the moment fixed-risk sizing is enabled.
-// Historical scanner results must not alter a newly funded account.
-const ACCOUNT_BALANCE_STARTED_AT = '2026-07-21T12:21:00.000Z'
+import { calculateAccountSummary } from '../../src/lib/positionSizing.js'
 
 function signalStrengthFromSnapshot(record: any): number | null {
   const storedScore = Number(record.plan_snapshot?.signalStrength?.score)
   if (Number.isInteger(storedScore) && storedScore >= 1 && storedScore <= 10) return storedScore
   if (!record.plan_snapshot?.stop || !Array.isArray(record.plan_snapshot?.takeProfits)) return null
   return calculateSignalStrength(record.plan_snapshot, Array.isArray(record.trend_snapshot) ? record.trend_snapshot : []).score
+}
+
+function isOpenRecord(record: { status: string; tp2_price: string | null; tp3_price: string | null }) {
+  return record.status === 'active' || (record.status === 'tp1' && record.tp2_price !== null) || (record.status === 'tp2' && record.tp3_price !== null)
+}
+
+function isClosedRecord(record: { status: string; tp2_price: string | null; tp3_price: string | null }) {
+  return !isOpenRecord(record)
+}
+
+function marginFromSnapshot(record: any): number | null {
+  const margin = Number(record.plan_snapshot?.positionSizing?.margin)
+  return Number.isFinite(margin) && margin > 0 ? margin : null
 }
 
 export default async function handler(request: any, response: any) {
@@ -31,20 +41,19 @@ export default async function handler(request: any, response: any) {
     }
 
     if (request.query?.state === 'account') {
-      const records = await supabaseRequest<Array<{ status: string; tp2_price: string | null; tp3_price: string | null; outcome_r: string | null }>>(`/rest/v1/mkr_signals?select=status,tp2_price,tp3_price,outcome_r&status=in.(active,tp1,tp2,tp3,stop,expired,ambiguous)&closed_at=gte.${ACCOUNT_BALANCE_STARTED_AT}&outcome_r=not.is.null&limit=1000`)
+      const records = await supabaseRequest<Array<{ status: string; tp2_price: string | null; tp3_price: string | null; outcome_r: string | null; plan_snapshot: unknown }>>('/rest/v1/mkr_signals?select=status,tp2_price,tp3_price,outcome_r,plan_snapshot&status=in.(active,tp1,tp2,tp3,stop,expired,ambiguous)&limit=1000')
       const outcomesR = records
-        .filter((record) => record.status === 'tp3' || record.status === 'stop' || record.status === 'expired' || record.status === 'ambiguous' || (record.status === 'tp1' && record.tp2_price === null) || (record.status === 'tp2' && record.tp3_price === null))
+        .filter(isClosedRecord)
         .map((record) => Number(record.outcome_r))
         .filter(Number.isFinite)
+      const openMargins = records.filter(isOpenRecord).map(marginFromSnapshot)
       response.setHeader('Cache-Control', 'no-store')
-      return response.status(200).json({ outcomesR })
+      return response.status(200).json({ account: calculateAccountSummary(outcomesR, openMargins) })
     }
 
     const state = request.query?.state === 'closed' ? 'closed' : 'open'
     const records = await supabaseRequest<any[]>('/rest/v1/mkr_signals?select=*&status=in.(active,tp1,tp2,tp3,stop,expired,ambiguous)&order=detected_at.desc&limit=100')
-    const filtered = records.filter((record) => state === 'open'
-      ? record.status === 'active' || (record.status === 'tp1' && record.tp2_price !== null) || (record.status === 'tp2' && record.tp3_price !== null)
-      : record.status === 'tp3' || record.status === 'stop' || record.status === 'expired' || record.status === 'ambiguous' || (record.status === 'tp1' && record.tp2_price === null) || (record.status === 'tp2' && record.tp3_price === null))
+    const filtered = records.filter((record) => state === 'open' ? isOpenRecord(record) : isClosedRecord(record))
     response.setHeader('Cache-Control', 'no-store')
     return response.status(200).json({
       signals: filtered.slice(0, 50).map((record) => ({
@@ -62,6 +71,7 @@ export default async function handler(request: any, response: any) {
         tp2Price: record.tp2_price === null ? undefined : Number(record.tp2_price),
         takeProfits: record.plan_snapshot?.takeProfits,
         signalStrength: signalStrengthFromSnapshot(record),
+        positionSizing: record.plan_snapshot?.positionSizing,
         lastPrice: Number(record.last_price),
         outcomeR: record.outcome_r === null ? null : Number(record.outcome_r),
         snapshotUrl: getPublicSnapshotUrl(record.snapshot_path),

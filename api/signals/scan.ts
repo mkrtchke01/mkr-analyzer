@@ -3,11 +3,13 @@ import { getCandles, getMarkets, type Candle, type Timeframe } from '../../src/l
 import { createSignalSnapshot } from '../../src/lib/signalSnapshot.js'
 import { evaluateSignalCandle, type ManagedSignal } from '../../src/lib/signalLifecycle.js'
 import { calculateSignalStrength } from '../../src/lib/signalStrength.js'
+import { calculateAccountSummary, calculatePositionSizing, MAX_OPEN_POSITIONS, STARTING_BALANCE_USDT } from '../../src/lib/positionSizing.js'
 import { analyzeTrend, calculateTradePlans, getOverallTrend, type SetupType, type TradePlan, type TrendAnalysis } from '../../src/lib/trend.js'
 import { isAuthorizedCronRequest, supabaseRequest, uploadSnapshot } from '../_lib/supabase.js'
 
 const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
 const MAX_CONCURRENCY = 5
+const MINIMUM_SIGNAL_STRENGTH = 7
 
 type StoredSignal = {
   id: string
@@ -31,6 +33,7 @@ type StoredSignal = {
 type ScannerRun = { id: string }
 type ScanMarketResult = { plansFound: number, created: number }
 type ScannerErrorPhase = 'monitor' | 'market' | 'persistence' | 'run'
+type ScannerFunding = { availableBalance: number, equity: number, openPositions: number }
 
 const SETUP_PRIORITY: Record<SetupType, number> = {
   'breakout-retest': 6,
@@ -42,9 +45,12 @@ const SETUP_PRIORITY: Record<SetupType, number> = {
   consensus: 1,
 }
 
-export function selectStrongestPlan(plans: TradePlan[]): TradePlan | undefined {
+export function selectStrongestPlan(plans: TradePlan[], analyses: TrendAnalysis[] = []): TradePlan | undefined {
   return plans.reduce<TradePlan | undefined>((strongest, candidate) => {
     if (!strongest) return candidate
+    const strongestStrength = calculateSignalStrength(strongest, analyses).score
+    const candidateStrength = calculateSignalStrength(candidate, analyses).score
+    if (candidateStrength !== strongestStrength) return candidateStrength > strongestStrength ? candidate : strongest
     const strongestPriority = SETUP_PRIORITY[strongest.setupType]
     const candidatePriority = SETUP_PRIORITY[candidate.setupType]
     if (candidatePriority !== strongestPriority) return candidatePriority > strongestPriority ? candidate : strongest
@@ -52,6 +58,26 @@ export function selectStrongestPlan(plans: TradePlan[]): TradePlan | undefined {
     const candidateTarget = Math.max(...candidate.takeProfits.map((target) => target.riskMultiple))
     return candidateTarget > strongestTarget ? candidate : strongest
   }, undefined)
+}
+
+function isOpenSignal(signal: { status: string, tp2_price: string | null, tp3_price: string | null }) {
+  return signal.status === 'active' || (signal.status === 'tp1' && signal.tp2_price !== null) || (signal.status === 'tp2' && signal.tp3_price !== null)
+}
+
+function isClosedSignal(signal: { status: string, tp2_price: string | null, tp3_price: string | null }) {
+  return !isOpenSignal(signal)
+}
+
+function marginFromSnapshot(signal: any): number | null {
+  const margin = Number(signal.plan_snapshot?.positionSizing?.margin)
+  return Number.isFinite(margin) && margin > 0 ? margin : null
+}
+
+function fundingFromSignals(signals: any[]): ScannerFunding {
+  const outcomes = signals.filter(isClosedSignal).map((signal) => Number(signal.outcome_r)).filter(Number.isFinite)
+  const openSignals = signals.filter(isOpenSignal)
+  const account = calculateAccountSummary(outcomes, openSignals.map(marginFromSnapshot))
+  return { availableBalance: account.balance, equity: account.equity, openPositions: openSignals.length }
 }
 
 const runWithConcurrency = async <T>(items: T[], task: (item: T) => Promise<void>) => {
@@ -156,7 +182,7 @@ async function monitorSignal(signal: StoredSignal) {
   }
 }
 
-export async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnalysis[], entryCandles: Candle[], runId?: string) {
+export async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnalysis[], entryCandles: Candle[], runId?: string, funding?: ScannerFunding) {
   if (!plan.stop.price) return false
 
   const confirmationCandle = entryCandles.at(-1)
@@ -164,7 +190,11 @@ export async function persistPlan(symbol: string, plan: TradePlan, analyses: Tre
   const id = randomUUID()
   const snapshotPath = `${id}.svg`
   const signalStrength = calculateSignalStrength(plan, analyses)
-  const scoredPlan = { ...plan, signalStrength }
+  if (signalStrength.score < MINIMUM_SIGNAL_STRENGTH) return false
+  if (funding && funding.openPositions >= MAX_OPEN_POSITIONS) return false
+  const positionSizing = calculatePositionSizing(plan.stop.entry, plan.stop.price, funding?.availableBalance ?? STARTING_BALANCE_USDT, funding?.equity ?? STARTING_BALANCE_USDT)
+  if (!positionSizing) return false
+  const scoredPlan = { ...plan, signalStrength, positionSizing }
   const fingerprint = `${symbol}:${plan.setupType}:${plan.stop.side}:${plan.signalKey ?? confirmationCandle.time}`
   const detectedAt = new Date(confirmationCandle.time * 1000).toISOString()
   const payload = {
@@ -207,6 +237,10 @@ export async function persistPlan(symbol: string, plan: TradePlan, analyses: Tre
     throw error
   }
   if (!created.length) return false
+  if (funding) {
+    funding.availableBalance = Math.max(0, funding.availableBalance - positionSizing.margin)
+    funding.openPositions += 1
+  }
 
   try {
     const snapshot = createSignalSnapshot(symbol, entryCandles, plan, detectedAt)
@@ -223,7 +257,7 @@ export async function persistPlan(symbol: string, plan: TradePlan, analyses: Tre
   return true
 }
 
-async function scanMarket(symbol: string, openSymbols: ReadonlySet<string>, runId?: string): Promise<ScanMarketResult> {
+async function scanMarket(symbol: string, openSymbols: ReadonlySet<string>, funding: ScannerFunding, persist: typeof persistPlan, runId?: string): Promise<ScanMarketResult> {
   if (openSymbols.has(symbol)) return { plansFound: 0, created: 0 }
   const multiTimeframeCandles = await Promise.all(ANALYSIS_TIMEFRAMES.map((timeframe) => getCandles(symbol, timeframe, timeframe === '5m' ? 360 : 180)))
   const confirmed = multiTimeframeCandles.map(closedCandles)
@@ -237,9 +271,9 @@ async function scanMarket(symbol: string, openSymbols: ReadonlySet<string>, runI
     fifteenMinuteCandles: confirmed[2],
     fiveMinuteCandles: entryCandles,
   })
-  const strongestPlan = selectStrongestPlan(plans)
+  const strongestPlan = selectStrongestPlan(plans, analyses)
   if (!strongestPlan) return { plansFound: 0, created: 0 }
-  return { plansFound: 1, created: await persistPlan(symbol, strongestPlan, analyses, entryCandles, runId) ? 1 : 0 }
+  return { plansFound: 1, created: await persist(symbol, strongestPlan, analyses, entryCandles, runId, funding) ? 1 : 0 }
 }
 
 export default async function handler(request: any, response: any) {
@@ -269,13 +303,24 @@ export default async function handler(request: any, response: any) {
       }
     })
 
+    const accountSignals = await supabaseRequest<any[]>('/rest/v1/mkr_signals?select=symbol,status,tp2_price,tp3_price,outcome_r,plan_snapshot&status=in.(active,tp1,tp2,tp3,stop,expired,ambiguous)&limit=1000')
+    const funding = fundingFromSignals(accountSignals)
+    const currentOpenSignals = accountSignals.filter(isOpenSignal)
+    const currentOpenSymbols = new Set(currentOpenSignals.map((signal) => signal.symbol))
+    let persistenceQueue = Promise.resolve()
+    const persistQueued: typeof persistPlan = async (...args) => {
+      const task = persistenceQueue.then(() => persistPlan(...args))
+      persistenceQueue = task.then(() => undefined, () => undefined)
+      return task
+    }
+
     const markets = await getMarkets()
     let created = 0
     let plansFound = 0
     let marketErrors = 0
     await runWithConcurrency(markets, async (market) => {
       try {
-        const result = await scanMarket(market.symbol, openSymbols, runId)
+        const result = await scanMarket(market.symbol, currentOpenSymbols, funding, persistQueued, runId)
         plansFound += result.plansFound
         created += result.created
       } catch (error) {
@@ -290,7 +335,7 @@ export default async function handler(request: any, response: any) {
       created_count: created,
       market_error_count: marketErrors,
       monitor_error_count: monitorErrors,
-      details: { monitored, openSignals: openSignals.length },
+      details: { monitored, openSignals: currentOpenSignals.length, freeBalance: funding.availableBalance, reservedMargin: funding.equity - funding.availableBalance },
     })
     response.setHeader('Cache-Control', 'no-store')
     return response.status(200).json({ ok: true, runId, monitored, created, plansFound, scanned: markets.length, marketErrors, monitorErrors })

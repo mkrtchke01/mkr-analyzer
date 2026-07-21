@@ -15,6 +15,7 @@ type TrendPanelProps = {
 type TradePlansProps = {
   tradePlans: TradePlan[]
   availableBalance: number
+  accountEquity: number
 }
 
 const timeframeRole: Record<TrendAnalysis['timeframe'], string> = {
@@ -66,7 +67,7 @@ async function copyPrice(value: string) {
   if (!copied) throw new Error('Clipboard is unavailable')
 }
 
-export function TradePlans({ tradePlans, availableBalance }: TradePlansProps) {
+export function TradePlans({ tradePlans, availableBalance, accountEquity }: TradePlansProps) {
   const [copiedPrice, setCopiedPrice] = useState<string | null>(null)
 
   if (!tradePlans.length) return null
@@ -99,7 +100,7 @@ export function TradePlans({ tradePlans, availableBalance }: TradePlansProps) {
 
   return <section className="trade-plans" aria-label="План сделки">
     {tradePlans.map((tradePlan) => {
-      const sizing = tradePlan.stop.price ? calculatePositionSizing(tradePlan.stop.entry, tradePlan.stop.price, availableBalance) : undefined
+      const sizing = tradePlan.positionSizing ?? (tradePlan.stop.price ? calculatePositionSizing(tradePlan.stop.entry, tradePlan.stop.price, availableBalance, accountEquity) : undefined)
       return <div className={`trade-plan ${tradePlan.stop.side}`} key={tradePlan.setupType}>
         {tradePlan.stop.price ? <>
           <header className="trade-plan-header">

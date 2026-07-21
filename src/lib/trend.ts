@@ -1,4 +1,5 @@
 import type { Candle, Timeframe } from './bybit.js'
+import type { PositionSizing } from './positionSizing.js'
 import { calculateRsi } from './rsi.js'
 export type TrendDirection = 'bullish' | 'bearish' | 'flat'
 export type OverallTrend = 'strong-long' | 'strong-short' | 'flat'
@@ -82,6 +83,7 @@ export type TradePlan = {
   signalKey?: string
   entryTime?: number
   signalStrength?: SignalStrength
+  positionSizing?: PositionSizing
 }
 
 export type ManualChartLevel = {

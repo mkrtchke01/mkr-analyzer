@@ -1,4 +1,4 @@
-import { calculateAccountSummary, type AccountSummary } from './positionSizing'
+import type { AccountSummary, PositionSizing } from './positionSizing'
 import type { StrategyStats } from './strategyStats'
 
 export type SignalState = 'open' | 'closed'
@@ -19,6 +19,7 @@ export type SavedSignal = {
   tp2Price?: number
   takeProfits?: TradePlan['takeProfits']
   signalStrength: number | null
+  positionSizing?: PositionSizing
   lastPrice: number
   outcomeR: number | null
   snapshotUrl: string | null
@@ -46,6 +47,7 @@ export function tradePlanFromSavedSignal(signal: SavedSignal): TradePlan {
           { id: 'TP1', price: signal.tp1Price, share: 50, riskMultiple: initialRisk ? Math.abs(signal.tp1Price - signal.entryPrice) / initialRisk : 1.5 },
           { id: 'TP2', price: signal.tp2Price, share: 50, riskMultiple },
         ]),
+    positionSizing: signal.positionSizing,
   }
 }
 
@@ -59,8 +61,8 @@ export async function getSavedSignals(state: SignalState): Promise<SavedSignal[]
 export async function getAccountSummary(): Promise<AccountSummary> {
   const response = await fetch('/api/signals?state=account')
   if (!response.ok) throw new Error('Не удалось загрузить баланс')
-  const payload = await response.json() as { outcomesR: Array<number | null> }
-  return calculateAccountSummary(payload.outcomesR)
+  const payload = await response.json() as { account: AccountSummary }
+  return payload.account
 }
 
 export async function getStrategyStats(): Promise<StrategyStats[]> {
