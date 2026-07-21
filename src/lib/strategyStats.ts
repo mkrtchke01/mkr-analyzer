@@ -1,5 +1,5 @@
-import { RISK_PER_TRADE_USDT } from './positionSizing'
-import { SETUP_META, type SetupType } from './trend'
+import { RISK_PER_TRADE_USDT } from './positionSizing.js'
+import { SETUP_META, type SetupType } from './trend.js'
 
 export type StrategyStatsSignal = {
   setupType: SetupType
