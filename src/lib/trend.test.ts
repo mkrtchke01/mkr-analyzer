@@ -301,7 +301,12 @@ describe('trend analysis', () => {
 
   it('builds targets from a stopped pullback and the local high', () => {
     const candles = makeStoppedPullbackCandles()
-    const plan = calculateTradePlan(candles, { fourHour: analysis('4h', 'bullish', 60), hourlyCandles: makeHourlyPullbackCandles() })
+    const plan = calculateTradePlan(candles, {
+      fourHour: analysis('4h', 'bullish', 60),
+      oneHour: analysis('1h', 'bullish', 60),
+      fifteenMinute: analysis('15m', 'bullish', 60),
+      hourlyCandles: makeHourlyPullbackCandles(),
+    })
     const risk = plan!.stop.entry - plan!.stop.price!
 
     expect(plan!.takeProfits).toHaveLength(2)
@@ -312,17 +317,35 @@ describe('trend analysis', () => {
     expect(plan!.setupNote).toContain('Коррекция 1h')
   })
 
-  it('uses 4h and a 1h Fibonacci pullback while ignoring a 15m countertrend', () => {
-    const context = { fourHour: analysis('4h', 'bullish', 60), hourlyCandles: makeHourlyPullbackCandles() }
+  it('requires 4h, 1h and 15m to have the same trend direction', () => {
+    const context = {
+      fourHour: analysis('4h', 'bullish', 60),
+      oneHour: analysis('1h', 'bullish', 60),
+      fifteenMinute: analysis('15m', 'bullish', 60),
+      hourlyCandles: makeHourlyPullbackCandles(),
+    }
     const plan = calculateTradePlan(makeStoppedPullbackCandles(), context)
 
     expect(plan).toMatchObject({ setupType: 'trend-reclaim', stop: { side: 'long' } })
     expect(plan!.setupNote).toContain('5m подтверждён 2 свечами')
   })
 
+  it('rejects a trend reclaim when one of 4h, 1h or 15m disagrees', () => {
+    const plan = calculateTradePlan(makeStoppedPullbackCandles(), {
+      fourHour: analysis('4h', 'bullish', 60),
+      oneHour: analysis('1h', 'bullish', 60),
+      fifteenMinute: analysis('15m', 'bearish', 60),
+      hourlyCandles: makeHourlyPullbackCandles(),
+    })
+
+    expect(plan).toBeNull()
+  })
+
   it('mirrors the 4h/1h pullback entry for a short', () => {
     const plan = calculateTradePlan(mirrorCandles(makeStoppedPullbackCandles()), {
       fourHour: analysis('4h', 'bearish', 60),
+      oneHour: analysis('1h', 'bearish', 60),
+      fifteenMinute: analysis('15m', 'bearish', 60),
       hourlyCandles: mirrorCandles(makeHourlyPullbackCandles()),
     })
 

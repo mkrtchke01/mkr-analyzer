@@ -266,6 +266,8 @@ async function scanMarket(symbol: string, openSymbols: ReadonlySet<string>, fund
   const entryCandles = confirmed[3]
   const plans = calculateTradePlans(entryCandles, getOverallTrend(analyses), {
     fourHour: analyses[0],
+    oneHour: analyses[1],
+    fifteenMinute: analyses[2],
     hourlyCandles: confirmed[1],
     // The live 1h candle can form the second divergence pivot; entry remains based on closed 5m candles.
     hourlyDivergenceCandles: multiTimeframeCandles[1],

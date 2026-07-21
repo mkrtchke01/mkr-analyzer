@@ -326,6 +326,8 @@ export function calculateStop(candles: Candle[], trend: OverallTrend): StopPropo
 
 export type TrendReclaimContext = {
   fourHour: TrendAnalysis
+  oneHour: TrendAnalysis
+  fifteenMinute: TrendAnalysis
   hourlyCandles: Candle[]
 }
 
@@ -391,8 +393,9 @@ export function calculateTradePlan(candles: Candle[], context: TrendReclaimConte
 
 export function calculateTrendReclaimPlan(candles: Candle[], context: TrendReclaimContext): TradePlan | null {
   if (candles.length < PERIOD + 8) return null
-  const { fourHour, hourlyCandles } = context
+  const { fourHour, oneHour, fifteenMinute, hourlyCandles } = context
   if (fourHour.direction === 'flat' || fourHour.strength < CONTEXT_MIN_STRENGTH) return null
+  if (oneHour.direction !== fourHour.direction || fifteenMinute.direction !== fourHour.direction) return null
 
   const side = fourHour.direction === 'bullish' ? 'long' : 'short'
   const hourlyPullback = findHourlyPullback(hourlyCandles, side)
@@ -423,7 +426,7 @@ export function calculateTrendReclaimPlan(candles: Candle[], context: TrendRecla
   return {
     setupType: 'trend-reclaim',
     setupName: SETUP_META['trend-reclaim'].name,
-    setupNote: `Коррекция 1h ${(hourlyPullback.retracement * 100).toFixed(1)}% · 5m подтверждён 2 свечами`,
+    setupNote: `4h / 1h / 15m ${side.toUpperCase()} · Коррекция 1h ${(hourlyPullback.retracement * 100).toFixed(1)}% · 5m подтверждён 2 свечами`,
     stop,
     takeProfits: [
       { id: 'TP1', price: localTarget.price, share: 50, riskMultiple: rewardToTarget / risk },
