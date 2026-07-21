@@ -144,16 +144,20 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       if (stopPrice === undefined) return
       const { stop, takeProfits } = tradePlan
       const setupName = SETUP_META[tradePlan.setupType].shortName
-      if (tradePlan.triggerLevel) {
+      const referenceLevels = [
+        ...(tradePlan.triggerLevel ? [{ ...tradePlan.triggerLevel, color: '#f2c15d' }] : []),
+        ...(tradePlan.chartLevels ?? []),
+      ].filter((reference, index, references) => references.findIndex((candidate) => candidate.label === reference.label && candidate.price === reference.price) === index)
+      referenceLevels.forEach((reference) => {
         tradeLinesRef.current.push(series.createPriceLine({
-          price: tradePlan.triggerLevel.price,
-          color: '#f2c15d',
+          price: reference.price,
+          color: reference.color ?? '#f2c15d',
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: tradePlan.triggerLevel.label,
+          title: reference.label,
         }))
-      }
+      })
       if (tradePlan.entryTime !== undefined) {
         tradeLinesRef.current.push(series.createPriceLine({
           price: stop.entry,

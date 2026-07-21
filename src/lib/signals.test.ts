@@ -14,6 +14,7 @@ const savedSignal: SavedSignal = {
   initialStopPrice: 95,
   tp1Price: 107.5,
   tp2Price: 115,
+  chartLevels: [{ price: 98, label: 'BR УРОВЕНЬ 15m' }],
   signalStrength: null,
   lastPrice: 103,
   outcomeR: null,
@@ -32,5 +33,6 @@ describe('fixed signal plan', () => {
       { id: 'TP1', price: 107.5, share: 50, riskMultiple: 1.5 },
       { id: 'TP2', price: 115, share: 50, riskMultiple: 3 },
     ])
+    expect(plan.chartLevels).toEqual([{ price: 98, label: 'BR УРОВЕНЬ 15m' }])
   })
 })

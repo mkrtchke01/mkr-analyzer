@@ -74,6 +74,12 @@ export type SignalStrength = {
   pattern: number
 }
 
+export type ChartReferenceLevel = {
+  price: number
+  label: string
+  color?: string
+}
+
 export type TradePlan = {
   setupType: SetupType
   setupName: string
@@ -81,6 +87,8 @@ export type TradePlan = {
   stop: StopProposal
   takeProfits: TakeProfitLevel[]
   triggerLevel?: { price: number, label: string }
+  /** Fixed structural levels used to explain why this setup exists. */
+  chartLevels?: ChartReferenceLevel[]
   signalKey?: string
   entryTime?: number
   signalStrength?: SignalStrength
@@ -346,7 +354,14 @@ export type DivergenceReversalContext = {
   fiveMinuteCandles: Candle[]
 }
 
-type HourlyPullback = { side: 'long' | 'short', retracement: number, correctionPrice: number, atr: number }
+type HourlyPullback = {
+  side: 'long' | 'short'
+  retracement: number
+  correctionPrice: number
+  originPrice: number
+  impulsePrice: number
+  atr: number
+}
 
 export function findHourlyPullback(candles: Candle[], side: 'long' | 'short'): HourlyPullback | undefined {
   const atr = calculateAtr(candles)
@@ -382,7 +397,7 @@ export function findHourlyPullback(candles: Candle[], side: 'long' | 'short'): H
     const recentCorrection = lastIndex - correctionIndex <= 12
     const directionalImpulse = directionalImpulseCandles >= Math.ceil((impulseEndIndex - origin.index) * 0.55)
     if (impulse >= atr * 5 && retracement >= 0.3 && retracement <= 0.65 && recovery <= 0.5 && stillInPullback && recentCorrection && directionalImpulse) {
-      return { side, retracement, correctionPrice: correctionEnd, atr }
+      return { side, retracement, correctionPrice: correctionEnd, originPrice: origin.price, impulsePrice: impulseEnd, atr }
     }
   }
 
@@ -442,6 +457,12 @@ export function calculateTrendReclaimPlan(candles: Candle[], context: TrendRecla
     distanceAtr: risk / atr,
   }
   const direction = side === 'long' ? 1 : -1
+  const impulseRange = Math.abs(hourlyPullback.impulsePrice - hourlyPullback.originPrice)
+  const fibonacciLevels = [0.382, 0.5, 0.618].map((ratio) => ({
+    price: hourlyPullback.impulsePrice - direction * impulseRange * ratio,
+    label: `TR ФИБО ${ratio} 1h`,
+    color: '#b991ff',
+  }))
   return {
     setupType: 'trend-reclaim',
     setupName: SETUP_META['trend-reclaim'].name,
@@ -450,6 +471,10 @@ export function calculateTrendReclaimPlan(candles: Candle[], context: TrendRecla
     takeProfits: [
       { id: 'TP1', price: localTarget.price, share: 50, riskMultiple: rewardToTarget / risk },
       { id: 'TP2', price: entry + direction * risk * 3, share: 50, riskMultiple: 3 },
+    ],
+    chartLevels: [
+      { price: hourlyPullback.correctionPrice, label: 'TR ОТКАТ 1h', color: '#f2c15d' },
+      ...fibonacciLevels,
     ],
   }
 }
@@ -713,6 +738,7 @@ export function calculateFalseBreakoutPlan(candles: Candle[], side: 'long' | 'sh
           distanceAtr: risk / atr,
         },
         takeProfits,
+        chartLevels: [{ price: level.level, label: 'FB УРОВЕНЬ 1h', color: '#f2c15d' }],
       }
     }
   }
@@ -759,6 +785,7 @@ export function calculateLevelBreakoutPlan(candles: Candle[], trend: OverallTren
     setupNote: `Пробой 1h уровня ${hourlyRange.level.toPrecision(6)} · наторговка ${hourlyRange.touches} касания · диапазон ${hourlyRange.height.toPrecision(4)}`,
     stop,
     takeProfits,
+    chartLevels: [{ price: hourlyRange.level, label: 'LB УРОВЕНЬ 1h', color: '#f2c15d' }],
   }
 }
 
@@ -774,6 +801,7 @@ type HourlyRsiDivergence = {
   firstIndex: number
   secondIndex: number
   secondPrice: number
+  firstPrice: number
 }
 
 function rsiAtPivot(candles: Candle[], rsiByTime: Map<number, number>, index: number, kind: 'high' | 'low') {
@@ -813,7 +841,15 @@ function findHourlyRsiDivergence(candles: Candle[]): HourlyRsiDivergence | undef
         const hasDivergence = side === 'long'
           ? candles[secondIndex].low < candles[firstIndex].low - atr * 0.25 && secondRsi > firstRsi + 3
           : candles[secondIndex].high > candles[firstIndex].high + atr * 0.25 && secondRsi < firstRsi - 3
-        if (hasDivergence) return { side, firstIndex, secondIndex, secondPrice: side === 'long' ? candles[secondIndex].low : candles[secondIndex].high }
+        if (hasDivergence) {
+          return {
+            side,
+            firstIndex,
+            secondIndex,
+            firstPrice: side === 'long' ? candles[firstIndex].low : candles[firstIndex].high,
+            secondPrice: side === 'long' ? candles[secondIndex].low : candles[secondIndex].high,
+          }
+        }
       }
     }
   }
@@ -914,6 +950,10 @@ export function calculateDivergenceReversalPlan(context?: DivergenceReversalCont
       distanceAtr: risk / atr,
     },
     takeProfits,
+    chartLevels: [
+      { price: divergence.firstPrice, label: 'DV ПИВОТ 1 1h', color: '#b991ff' },
+      { price: divergence.secondPrice, label: 'DV ПИВОТ 2 1h', color: '#b991ff' },
+    ],
     signalKey: `${divergenceCandles[divergence.firstIndex].time}:${divergenceTime}`,
   }
 }
@@ -988,6 +1028,7 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
       setupName: SETUP_META['breakout-retest'].name,
       setupNote: `Импульсный пробой 15m уровня ${level.level.toPrecision(6)} · свежий 5m отскок от экстремума ретеста (не дальше ${BREAKOUT_RETEST_MAX_ENTRY_DISTANCE_ATR} ATR) · TP1 3R · TP2 6R`,
       triggerLevel: { price: level.level, label: 'BR УРОВЕНЬ 15m' },
+      chartLevels: [{ price: level.level, label: 'BR УРОВЕНЬ 15m', color: '#f2c15d' }],
       stop: {
         side,
         entry: current.close,

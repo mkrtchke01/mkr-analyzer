@@ -19,6 +19,7 @@ export type SavedSignal = {
   tp2Price?: number
   takeProfits?: TradePlan['takeProfits']
   triggerLevel?: TradePlan['triggerLevel']
+  chartLevels?: TradePlan['chartLevels']
   signalStrength: number | null
   positionSizing?: PositionSizing
   lastPrice: number
@@ -51,6 +52,7 @@ export function tradePlanFromSavedSignal(signal: SavedSignal): TradePlan {
           { id: 'TP2', price: signal.tp2Price, share: 50, riskMultiple },
         ]),
     triggerLevel: signal.triggerLevel,
+    chartLevels: signal.chartLevels,
     positionSizing: signal.positionSizing,
   }
 }

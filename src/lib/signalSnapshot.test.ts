@@ -20,6 +20,10 @@ const plan: TradePlan = {
     { id: 'TP1', price: 120, share: 50, riskMultiple: 2 },
     { id: 'TP2', price: 125, share: 50, riskMultiple: 3 },
   ],
+  chartLevels: [
+    { price: 108, label: 'TR ОТКАТ 1h', color: '#f2c15d' },
+    { price: 112, label: 'TR ФИБО 0.5 1h', color: '#b991ff' },
+  ],
 }
 
 describe('signal snapshot', () => {
@@ -32,5 +36,7 @@ describe('signal snapshot', () => {
     expect(snapshot).toContain('STOP')
     expect(snapshot).toContain('TP1')
     expect(snapshot).toContain('TP2')
+    expect(snapshot).toContain('TR ОТКАТ 1h')
+    expect(snapshot).toContain('TR ФИБО 0.5 1h')
   })
 })

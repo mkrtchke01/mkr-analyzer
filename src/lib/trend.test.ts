@@ -321,6 +321,10 @@ describe('trend analysis', () => {
     expect(plan!.takeProfits[1]).toMatchObject({ id: 'TP2', share: 50, riskMultiple: 3, price: plan!.stop.entry + risk * 3 })
     expect(plan!.setupType).toBe('trend-reclaim')
     expect(plan!.setupNote).toContain('импульс 1h')
+    expect(plan!.chartLevels).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'TR ОТКАТ 1h' }),
+      expect.objectContaining({ label: 'TR ФИБО 0.5 1h' }),
+    ]))
   })
 
   it('requires 4h, 1h and 15m to have the same trend direction', () => {
@@ -394,6 +398,7 @@ describe('trend analysis', () => {
     expect(plan!.takeProfits[1]).toMatchObject({ id: 'TP2', share: 50 })
     expect(plan!.takeProfits[1].price).toBeGreaterThan(plan!.takeProfits[0].price)
     expect(risk).toBeGreaterThan(0)
+    expect(plan!.chartLevels).toEqual([{ price: 121, label: 'LB УРОВЕНЬ 1h', color: '#f2c15d' }])
   })
 
   it('builds a short false-breakout plan after a 1h resistance sweep and 5m rejection', () => {
@@ -405,6 +410,7 @@ describe('trend analysis', () => {
     expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
     expect(plan!.stop.distanceAtr).toBeLessThanOrEqual(2.5)
     expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.5)
+    expect(plan!.chartLevels).toEqual([expect.objectContaining({ label: 'FB УРОВЕНЬ 1h', color: '#f2c15d' })])
   })
 
   it('uses 3R for the first false-breakout target when the nearest level is farther away', () => {
@@ -452,6 +458,10 @@ describe('trend analysis', () => {
     expect(plan!.setupNote).toContain('5m отскок')
     expect(plan!.stop.price).toBeLessThan(plan!.stop.entry)
     expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.25)
+    expect(plan!.chartLevels).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'DV ПИВОТ 1 1h' }),
+      expect.objectContaining({ label: 'DV ПИВОТ 2 1h' }),
+    ]))
   })
 
   it('rejects a five-candle 1h divergence before the second hourly pivot is confirmed', () => {
@@ -521,6 +531,7 @@ describe('trend analysis', () => {
 
     expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'long' } })
     expect(plan!.triggerLevel).toMatchObject({ label: 'BR УРОВЕНЬ 15m' })
+    expect(plan!.chartLevels).toEqual([{ price: plan!.triggerLevel!.price, label: 'BR УРОВЕНЬ 15m', color: '#f2c15d' }])
     expect(plan!.takeProfits).toHaveLength(2)
     expect(plan!.takeProfits[0].riskMultiple).toBe(3)
     expect(plan!.takeProfits[1].riskMultiple).toBe(6)
