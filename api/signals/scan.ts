@@ -113,7 +113,7 @@ async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnaly
   if (!confirmationCandle) return false
   const id = randomUUID()
   const snapshotPath = `${id}.svg`
-  const fingerprint = `${symbol}:${plan.setupType}:${plan.stop.side}:${confirmationCandle.time}`
+  const fingerprint = `${symbol}:${plan.setupType}:${plan.stop.side}:${plan.signalKey ?? confirmationCandle.time}`
   const detectedAt = new Date(confirmationCandle.time * 1000).toISOString()
   const payload = {
     id,
@@ -166,14 +166,14 @@ async function scanMarket(symbol: string) {
   const plans = calculateTradePlans(entryCandles, getOverallTrend(analyses), {
     fourHour: analyses[0],
     hourlyCandles: confirmed[1],
+    // The live 1h candle can form the second divergence pivot; entry remains based on closed 5m candles.
+    hourlyDivergenceCandles: multiTimeframeCandles[1],
     fifteenMinuteCandles: confirmed[2],
+    fiveMinuteCandles: entryCandles,
   })
   let created = 0
   for (const plan of plans) {
-    const sourceCandles = plan.setupType === 'bottom-reversal' || plan.setupType === 'top-reversal'
-      ? confirmed[2]
-      : entryCandles
-    if (await persistPlan(symbol, plan, analyses, sourceCandles)) created += 1
+    if (await persistPlan(symbol, plan, analyses, entryCandles)) created += 1
   }
   return created
 }
