@@ -249,7 +249,7 @@ describe('trend analysis', () => {
     expect(analyzeTrend(makeCandles(-0.5), '1h').direction).toBe('bearish')
   })
 
-  it('returns a strong long when the lower timeframes do not strongly oppose it', () => {
+  it('returns a strong long only when the lower timeframes confirm it', () => {
     const strongLong = [analysis('4h', 'bullish', 75), analysis('1h', 'bullish', 65), analysis('15m', 'bullish', 60), analysis('5m', 'bullish', 55)]
     expect(getOverallTrend(strongLong)).toBe('strong-long')
     const strongShort = strongLong.map((item) => ({ ...item, direction: 'bearish' as const }))
@@ -267,7 +267,7 @@ describe('trend analysis', () => {
     expect(getOverallTrend(permissiveLong)).toBe('strong-long')
 
     expect(getOverallTrend([{ ...permissiveLong[0], direction: 'bearish' }, ...permissiveLong.slice(1)])).toBe('flat')
-    expect(getOverallTrend([{ ...permissiveLong[0], direction: 'bullish', strength: 34 }, ...permissiveLong.slice(1)])).toBe('strong-long')
+    expect(getOverallTrend([{ ...permissiveLong[0], direction: 'bullish', strength: 34 }, ...permissiveLong.slice(1)])).toBe('flat')
     expect(getOverallTrend([...permissiveLong.slice(0, 2), { ...permissiveLong[2], direction: 'bearish', strength: 65 }, permissiveLong[3]])).toBe('flat')
     expect(getOverallTrend([...permissiveLong.slice(0, 3), { ...permissiveLong[3], direction: 'bearish', strength: 65 }])).toBe('flat')
   })
@@ -312,7 +312,7 @@ describe('trend analysis', () => {
     const plan = calculateTradePlan(makeStoppedPullbackCandles(), context)
 
     expect(plan).toMatchObject({ setupType: 'trend-reclaim', stop: { side: 'long' } })
-    expect(plan!.setupNote).toContain('5m подтверждён возвратом')
+    expect(plan!.setupNote).toContain('5m подтверждён 2 свечами')
   })
 
   it('mirrors the 4h/1h pullback entry for a short', () => {
@@ -382,18 +382,17 @@ describe('trend analysis', () => {
     expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.25)
   })
 
-  it('accepts a five-candle 1h divergence before the second hourly candle is confirmed', () => {
+  it('rejects a five-candle 1h divergence before the second hourly pivot is confirmed', () => {
     const plan = calculateDivergenceReversalPlan({
       hourlyCandles: makeFastHourlyBullishDivergence(),
       fifteenMinuteCandles: makeFifteenMinuteBullishReversal(),
       fiveMinuteCandles: makeFiveMinuteBullishReclaim(),
     })
 
-    expect(plan).toMatchObject({ setupType: 'bottom-reversal', stop: { side: 'long' } })
-    expect(plan!.setupNote).toContain('5 свечей')
+    expect(plan).toBeNull()
   })
 
-  it('accepts a shallow price extension when the RSI divergence is clear', () => {
+  it('rejects a shallow price extension even when the RSI divergence is clear', () => {
     const hourlyCandles = makeFastHourlyBullishDivergence()
     hourlyCandles[26] = { ...hourlyCandles[26], low: 93.2 }
     const extension = hourlyCandles[21].low - hourlyCandles[26].low
@@ -404,7 +403,7 @@ describe('trend analysis', () => {
       hourlyCandles,
       fifteenMinuteCandles: makeFifteenMinuteBullishReversal(),
       fiveMinuteCandles: makeFiveMinuteBullishReclaim(),
-    })).toMatchObject({ setupType: 'bottom-reversal', stop: { side: 'long' } })
+    })).toBeNull()
   })
 
   it('accepts a second 5m candle below the first close when it holds its own open', () => {
@@ -433,37 +432,32 @@ describe('trend analysis', () => {
     expect(calculateLevelBreakoutPlan(makeLevelBreakoutCandles(), 'strong-long')).toBeNull()
   })
 
-  it('builds a breakout-retest plan after a bullish reaction from the broken resistance', () => {
+  it('rejects a breakout-retest without a confirmed multi-timeframe trend', () => {
     const fifteenMinuteCandles = makeHourlyRetestRange()
     const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'flat', { hourlyCandles: makeHourlyRetestRange(), fifteenMinuteCandles })
 
-    expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'long' } })
-    expect(plan!.setupNote).toContain('Пробой 15m уровня')
-    expect(plan!.stop.price).toBeLessThan(plan!.stop.entry)
-    expect(plan!.takeProfits[0].riskMultiple).toBe(3)
-    expect(plan!.takeProfits).toHaveLength(1)
+    expect(plan).toBeNull()
   })
 
-  it('adds TP2 only at a previous 15m level that offers at least 4R', () => {
+  it('keeps a qualified 15m breakout-retest with 3R TP1 and a structural TP2', () => {
     const fifteenMinuteCandles = makeHourlyRetestRange()
     fifteenMinuteCandles[50] = { ...fifteenMinuteCandles[50], high: 120 }
-    const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'flat', {
+    const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'strong-long', {
       hourlyCandles: makeHourlyRetestRange(),
       fifteenMinuteCandles,
     })
 
+    expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'long' } })
     expect(plan!.takeProfits).toHaveLength(2)
     expect(plan!.takeProfits[0].riskMultiple).toBe(3)
     expect(plan!.takeProfits[1].riskMultiple).toBeGreaterThanOrEqual(4)
   })
 
-  it('mirrors the breakout-retest plan for a short after resistance retest', () => {
+  it('rejects a short breakout-retest without a confirmed multi-timeframe trend', () => {
     const fifteenMinuteCandles = mirrorCandles(makeHourlyRetestRange())
     const plan = calculateBreakoutRetestPlan(mirrorCandles(makeBreakoutRetestCandles()), 'flat', { hourlyCandles: mirrorCandles(makeHourlyRetestRange()), fifteenMinuteCandles })
 
-    expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'short' } })
-    expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
-    expect(plan!.takeProfits[0].riskMultiple).toBe(3)
+    expect(plan).toBeNull()
   })
 
   it('requires one 5m reversal candle after the retest', () => {
@@ -477,15 +471,15 @@ describe('trend analysis', () => {
     })).toBeNull()
   })
 
-  it('keeps a retest setup active after the reversal candle until the local high breaks', () => {
+  it('rejects an otherwise valid retest when its 15m level has only one touch', () => {
     const candles = makeBreakoutRetestCandles()
     candles[22] = { ...candles[22], open: 105.1, close: 105.8 }
     candles[23] = { ...candles[23], open: 105.8, high: 106.4, low: 105.5, close: 105.6 }
 
-    expect(calculateBreakoutRetestPlan(candles, 'flat', {
+    expect(calculateBreakoutRetestPlan(candles, 'strong-long', {
       hourlyCandles: makeHourlyRetestRange(),
       fifteenMinuteCandles: makeHourlyRetestRange(),
-    })).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'long' } })
+    })).toBeNull()
   })
 
   it('expires a retest setup after price breaks the local high', () => {

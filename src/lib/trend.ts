@@ -79,8 +79,8 @@ export type RiskRewardBox = {
 const FAST_EMA = 21
 const SLOW_EMA = 55
 const PERIOD = 14
-const CONTEXT_MIN_STRENGTH = 25
-const STRONG_OPPOSING_STRENGTH = 65
+const CONTEXT_MIN_STRENGTH = 35
+const STRONG_OPPOSING_STRENGTH = 55
 
 const clamp = (value: number, min = 0, max = 100) => Math.min(Math.max(value, min), max)
 
@@ -322,24 +322,26 @@ function findHourlyPullback(candles: Candle[], side: 'long' | 'short'): HourlyPu
       ? (impulseEnd - correctionEnd) / impulse
       : (correctionEnd - impulseEnd) / impulse
     const stillInPullback = side === 'long'
-      ? candles.at(-1)!.close < impulseEnd - atr * 0.1
-      : candles.at(-1)!.close > impulseEnd + atr * 0.1
-    if (impulse >= atr * 3 && retracement >= 0.25 && retracement <= 0.9 && stillInPullback) return { side, retracement }
+      ? candles.at(-1)!.close < impulseEnd - atr * 0.2
+      : candles.at(-1)!.close > impulseEnd + atr * 0.2
+    if (impulse >= atr * 4 && retracement >= 0.382 && retracement <= 0.786 && stillInPullback) return { side, retracement }
   }
 
   return undefined
 }
 
 function hasDirectionalReclaim(candles: Candle[], side: 'long' | 'short'): boolean {
-  if (candles.length < 2) return false
-  const current = candles.at(-1)!
-  const previous = candles.at(-2)!
+  if (candles.length < 3) return false
+  const lastThree = candles.slice(-3)
+  const current = lastThree[2]
+  const previous = lastThree[1]
   const directional = (candle: Candle) => side === 'long' ? candle.close > candle.open : candle.close < candle.open
+  const directionalCandles = lastThree.filter(directional).length
   const progressing = side === 'long'
     ? current.close > previous.close
     : current.close < previous.close
 
-  return directional(current) && progressing
+  return directional(current) && directionalCandles >= 2 && progressing
 }
 
 export function calculateTradePlan(candles: Candle[], context: TrendReclaimContext): TradePlan | null {
@@ -380,7 +382,7 @@ export function calculateTrendReclaimPlan(candles: Candle[], context: TrendRecla
   return {
     setupType: 'trend-reclaim',
     setupName: SETUP_META['trend-reclaim'].name,
-    setupNote: `Коррекция 1h ${(hourlyPullback.retracement * 100).toFixed(1)}% · 5m подтверждён возвратом`,
+    setupNote: `Коррекция 1h ${(hourlyPullback.retracement * 100).toFixed(1)}% · 5m подтверждён 2 свечами`,
     stop,
     takeProfits: [
       { id: 'TP1', price: localTarget.price, share: 50, riskMultiple: rewardToTarget / risk },
@@ -408,7 +410,7 @@ function hasMeaningfulReaction(candles: Candle[], index: number, kind: 'high' | 
   const reaction = kind === 'high'
     ? pivot - Math.min(...after.map((candle) => candle.low))
     : Math.max(...after.map((candle) => candle.high)) - pivot
-  return reaction >= atr * 0.5
+  return reaction >= atr * 0.75
 }
 
 function findHourlyRangeBeforeBreakout(candles: Candle[], side: 'long' | 'short', endIndex = candles.length - 1, minTouches = 1): HourlyRange | undefined {
@@ -418,24 +420,24 @@ function findHourlyRangeBeforeBreakout(candles: Candle[], side: 'long' | 'short'
   const levelKind = side === 'long' ? 'high' : 'low'
   let best: (HourlyRange & { score: number }) | undefined
 
-  for (let size = 2; size <= 24; size += 1) {
+  for (let size = 3; size <= 16; size += 1) {
     const start = endIndex - size + 1
     if (start < 5) continue
     const range = candles.slice(start, endIndex + 1)
     const rangeHigh = Math.max(...range.map((candle) => candle.high))
     const rangeLow = Math.min(...range.map((candle) => candle.low))
     const height = rangeHigh - rangeLow
-    if (height < atr * 0.35 || height > atr * 4.5) continue
+    if (height < atr * 0.5 || height > atr * 3.5) continue
 
     for (let index = start - 3; index >= Math.max(2, start - 100); index -= 1) {
       if (!isSwingAt(candles, index, levelKind) || !hasMeaningfulReaction(candles, index, levelKind, atr, start)) continue
       const level = levelKind === 'high' ? candles[index].high : candles[index].low
       const boundary = side === 'long' ? rangeHigh : rangeLow
-      if (Math.abs(boundary - level) > atr * 0.5) continue
+      if (Math.abs(boundary - level) > atr * 0.35) continue
 
       const touches = range.filter((candle) => side === 'long'
-        ? candle.high >= level - atr * 0.5 && candle.close <= level + atr * 0.3
-        : candle.low <= level + atr * 0.5 && candle.close >= level - atr * 0.3).length
+        ? candle.high >= level - atr * 0.35 && candle.close <= level + atr * 0.2
+        : candle.low <= level + atr * 0.35 && candle.close >= level - atr * 0.2).length
       // Один подтверждённый контакт с уровнем достаточен для пробойных сценариев:
       // после импульса рынок часто не успевает сформировать второе касание до выхода.
       if (!hasEnoughBreakoutLevelTouches(touches, minTouches)) continue
@@ -467,12 +469,12 @@ function findSignificantHourlyLevels(candles: Candle[], kind: 'high' | 'low'): S
       : Math.max(...after.map((candle) => candle.high)) - level
     const reactionAtr = reaction / atr
     const touches = after.filter((candle) => kind === 'high'
-      ? candle.high >= level - atr * 0.4 && candle.close <= level + atr * 0.25
-      : candle.low <= level + atr * 0.4 && candle.close >= level - atr * 0.25).length
+      ? candle.high >= level - atr * 0.25 && candle.close <= level + atr * 0.15
+      : candle.low <= level + atr * 0.25 && candle.close >= level - atr * 0.15).length
     const invalidatingCloses = after.filter((candle) => kind === 'high'
-      ? candle.close > level + atr * 0.5
-      : candle.close < level - atr * 0.5).length
-    if ((touches < 1 && reactionAtr < 1) || invalidatingCloses > 2) continue
+      ? candle.close > level + atr * 0.35
+      : candle.close < level - atr * 0.35).length
+    if ((touches < 2 && reactionAtr < 1.5) || invalidatingCloses > 1) continue
     if (!levels.some((candidate) => Math.abs(candidate.level - level) < atr * 0.2)) levels.push({ level, kind, touches, reactionAtr, time: candles[index].time })
   }
 
@@ -488,17 +490,22 @@ function findRecentFifteenMinuteRetestLevels(candles: Candle[]): RetestLevel[] {
 
   for (const [kind, side] of [['high', 'long'], ['low', 'short']] as const) {
     for (let index = candles.length - 3; index >= Math.max(2, candles.length - 100); index -= 1) {
-      if (!isSwingAt(candles, index, kind)) continue
+      if (!isSwingAt(candles, index, kind) || !hasMeaningfulReaction(candles, index, kind, atr)) continue
       const level = kind === 'high' ? candles[index].high : candles[index].low
-      if (levels.some((candidate) => candidate.side === side && Math.abs(candidate.level - level) < atr * 0.15)) continue
+      if (levels.some((candidate) => candidate.side === side && Math.abs(candidate.level - level) < atr * 0.2)) continue
+      const after = candles.slice(index + 1)
       const reaction = kind === 'high'
-        ? level - Math.min(...candles.slice(index + 1).map((candle) => candle.low))
-        : Math.max(...candles.slice(index + 1).map((candle) => candle.high)) - level
+        ? level - Math.min(...after.map((candle) => candle.low))
+        : Math.max(...after.map((candle) => candle.high)) - level
+      const touches = after.filter((candle) => kind === 'high'
+        ? candle.high >= level - atr * 0.25 && candle.close <= level + atr * 0.15
+        : candle.low <= level + atr * 0.25 && candle.close >= level - atr * 0.15).length
+      if (touches < 2) continue
       levels.push({
         side,
         level,
-        height: Math.min(atr * 3, Math.max(atr * 1.25, reaction)),
-        touches: 1,
+        height: Math.min(atr * 3, Math.max(atr * 1.5, reaction)),
+        touches,
         endTime: candles[index].time,
       })
     }
@@ -532,9 +539,9 @@ function buildStructuralTargets(entry: number, stopPrice: number, side: 'long' |
   const candidates = [measuredTarget, ...findHourlyTargets(hourlyCandles, side, entry)]
     .filter((price, index, prices) => (side === 'long' ? price > entry : price < entry) && prices.findIndex((candidate) => Math.abs(candidate - price) < risk * 0.15) === index)
     .sort((first, second) => side === 'long' ? first - second : second - first)
-  if (!candidates.length) return undefined
+  if (candidates.length < 2) return undefined
   const firstReward = side === 'long' ? candidates[0] - entry : entry - candidates[0]
-  if (firstReward < risk) return undefined
+  if (firstReward < risk * 1.5) return undefined
 
   const selected = candidates.slice(0, 3)
   const shares = selected.length === 3 ? [40, 35, 25] : selected.length === 2 ? [50, 50] : [100]
@@ -548,14 +555,14 @@ function buildStructuralTargets(entry: number, stopPrice: number, side: 'long' |
 
 function hasFalseBreakoutConfirmation(candles: Candle[], sweepIndex: number, side: 'long' | 'short', level: number, atr: number): boolean {
   const confirmation = candles.slice(sweepIndex + 1)
-  if (confirmation.length < 1 || confirmation.length > 4) return false
+  if (confirmation.length < 2 || confirmation.length > 3) return false
   const directionalCandles = confirmation.filter((candle) => side === 'long' ? candle.close > candle.open : candle.close < candle.open)
   const current = confirmation.at(-1)!
-  const movedAway = side === 'long' ? current.close >= level + atr * 0.1 : current.close <= level - atr * 0.1
+  const movedAway = side === 'long' ? current.close >= level + atr * 0.15 : current.close <= level - atr * 0.15
   const invalidated = confirmation.some((candle) => side === 'long'
-    ? candle.close < level - atr * 0.5
-    : candle.close > level + atr * 0.5)
-  return directionalCandles.length >= 1 && (side === 'long' ? current.close > current.open : current.close < current.open) && movedAway && !invalidated
+    ? candle.close < level - atr * 0.35
+    : candle.close > level + atr * 0.35)
+  return directionalCandles.length >= 2 && (side === 'long' ? current.close > current.open : current.close < current.open) && movedAway && !invalidated
 }
 
 function buildFalseBreakoutTargets(entry: number, stopPrice: number, side: 'long' | 'short', candles: Candle[], hourlyCandles: Candle[], sweepIndex: number): TakeProfitLevel[] | undefined {
@@ -564,7 +571,7 @@ function buildFalseBreakoutTargets(entry: number, stopPrice: number, side: 'long
   const localTarget = findLastSwing(candles, side === 'long' ? 'high' : 'low', sweepIndex - 1)
   if (!localTarget) return undefined
   const firstReward = side === 'long' ? localTarget.price - entry : entry - localTarget.price
-  if (firstReward < risk) return undefined
+  if (firstReward < risk * 1.5) return undefined
 
   const followUpTargets = findHourlyTargets(hourlyCandles, side, entry)
     .filter((price) => side === 'long' ? price > localTarget.price : price < localTarget.price)
@@ -589,17 +596,17 @@ export function calculateFalseBreakoutPlan(candles: Candle[], side: 'long' | 'sh
   const recentLevels = findSignificantHourlyLevels(context.hourlyCandles, levelKind)
   const lastIndex = candles.length - 1
   for (const level of recentLevels) {
-    for (let sweepIndex = lastIndex - 4; sweepIndex <= lastIndex - 2; sweepIndex += 1) {
+    for (let sweepIndex = lastIndex - 3; sweepIndex <= lastIndex - 2; sweepIndex += 1) {
       const sweep = candles[sweepIndex]
       const sweptAndClosedBack = side === 'long'
-        ? sweep.low <= level.level - atr * 0.1 && sweep.close >= level.level - atr * 0.1
-        : sweep.high >= level.level + atr * 0.1 && sweep.close <= level.level + atr * 0.1
+        ? sweep.low <= level.level - atr * 0.15 && sweep.close >= level.level
+        : sweep.high >= level.level + atr * 0.15 && sweep.close <= level.level
       if (!sweptAndClosedBack || !hasFalseBreakoutConfirmation(candles, sweepIndex, side, level.level, atr)) continue
 
       const entry = candles.at(-1)!.close
       const stopPrice = side === 'long' ? sweep.low - atr * 0.25 : sweep.high + atr * 0.25
       const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
-      if (risk <= 0 || risk / atr > 3) continue
+      if (risk <= 0 || risk / atr > 2.5) continue
       const takeProfits = buildFalseBreakoutTargets(entry, stopPrice, side, candles, context.hourlyCandles, sweepIndex)
       if (!takeProfits) continue
 
@@ -627,16 +634,16 @@ export function calculateLevelBreakoutPlan(candles: Candle[], trend: OverallTren
 
   const side = trend === 'strong-long' ? 'long' : 'short'
   const atr = calculateAtr(candles)
-  const hourlyRange = findHourlyRangeBeforeBreakout(context.hourlyCandles, side)
+  const hourlyRange = findHourlyRangeBeforeBreakout(context.hourlyCandles, side, context.hourlyCandles.length - 1, 2)
   if (!atr || !hourlyRange) return null
 
   const entryCandle = candles.at(-1)!
   const previous = candles.at(-2)!
   const entry = entryCandle.close
-  const threshold = atr * 0.1
+  const threshold = atr * 0.2
   const brokeNow = side === 'long'
-    ? entry > hourlyRange.level + threshold && previous.close <= hourlyRange.level + threshold && entryCandle.close >= entryCandle.open
-    : entry < hourlyRange.level - threshold && previous.close >= hourlyRange.level - threshold && entryCandle.close <= entryCandle.open
+    ? entry > hourlyRange.level + threshold && previous.close <= hourlyRange.level + threshold && entryCandle.close > entryCandle.open
+    : entry < hourlyRange.level - threshold && previous.close >= hourlyRange.level - threshold && entryCandle.close < entryCandle.open
   if (!brokeNow) return null
 
   const localStop = findLastSwing(candles, side === 'long' ? 'low' : 'high')
@@ -702,19 +709,19 @@ function findHourlyRsiDivergence(candles: Candle[]): HourlyRsiDivergence | undef
   if (!atr || rsiByTime.size === 0) return undefined
 
   for (const [kind, side] of [['low', 'long'], ['high', 'short']] as const) {
-    for (let secondIndex = candles.length - 1; secondIndex >= Math.max(16, candles.length - 40); secondIndex -= 1) {
-      if (!isDivergencePivot(candles, secondIndex, kind)) continue
+    for (let secondIndex = candles.length - 3; secondIndex >= Math.max(16, candles.length - 40); secondIndex -= 1) {
+      if (!isSwingAt(candles, secondIndex, kind)) continue
       const secondRsi = rsiAtPivot(candles, rsiByTime, secondIndex, kind)
       if (secondRsi === undefined) continue
 
-      // Five to forty 1h candles retain the meaningful swing while admitting fast reversals.
-      for (let firstIndex = secondIndex - 5; firstIndex >= Math.max(2, secondIndex - 40); firstIndex -= 1) {
+      // 10–40 candles keep the divergence visible and reject adjacent micro-pivots.
+      for (let firstIndex = secondIndex - 10; firstIndex >= Math.max(2, secondIndex - 40); firstIndex -= 1) {
         if (!isSwingAt(candles, firstIndex, kind)) continue
         const firstRsi = rsiAtPivot(candles, rsiByTime, firstIndex, kind)
         if (firstRsi === undefined) continue
         const hasDivergence = side === 'long'
-          ? candles[secondIndex].low < candles[firstIndex].low - atr * 0.05 && secondRsi > firstRsi + 3
-          : candles[secondIndex].high > candles[firstIndex].high + atr * 0.05 && secondRsi < firstRsi - 3
+          ? candles[secondIndex].low < candles[firstIndex].low - atr * 0.25 && secondRsi > firstRsi + 3
+          : candles[secondIndex].high > candles[firstIndex].high + atr * 0.25 && secondRsi < firstRsi - 3
         if (hasDivergence) return { side, firstIndex, secondIndex, secondPrice: side === 'long' ? candles[secondIndex].low : candles[secondIndex].high }
       }
     }
@@ -823,22 +830,22 @@ export function calculateDivergenceReversalPlan(context?: DivergenceReversalCont
   }
 }
 
-export function calculateBreakoutRetestPlan(candles: Candle[], _trend: OverallTrend, context?: LevelBreakoutContext): TradePlan | null {
-  if (candles.length < PERIOD + 10 || !context?.fifteenMinuteCandles) return null
+export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTrend, context?: LevelBreakoutContext): TradePlan | null {
+  if (trend === 'flat' || candles.length < PERIOD + 10 || !context?.fifteenMinuteCandles) return null
   const atr = calculateAtr(candles)
   if (!atr) return null
 
   const lastIndex = candles.length - 1
   const current = candles[lastIndex]
-  for (const level of findRecentFifteenMinuteRetestLevels(context.fifteenMinuteCandles)) {
-    const { side } = level
+  const side = trend === 'strong-long' ? 'long' : 'short'
+  for (const level of findRecentFifteenMinuteRetestLevels(context.fifteenMinuteCandles).filter((candidate) => candidate.side === side)) {
     let breakoutIndex = -1
-    for (let index = lastIndex - 1; index >= Math.max(1, lastIndex - 144); index -= 1) {
+    for (let index = lastIndex - 1; index >= Math.max(1, lastIndex - 72); index -= 1) {
       const candle = candles[index]
       const previous = candles[index - 1]
       const brokeLevel = side === 'long'
-        ? candle.close > level.level + atr * 0.05 && previous.close <= level.level + atr * 0.05
-        : candle.close < level.level - atr * 0.05 && previous.close >= level.level - atr * 0.05
+        ? candle.close > level.level + atr * 0.2 && previous.close <= level.level + atr * 0.2
+        : candle.close < level.level - atr * 0.2 && previous.close >= level.level - atr * 0.2
       if (candle.time >= level.endTime && brokeLevel) {
         breakoutIndex = index
         break
@@ -850,8 +857,8 @@ export function calculateBreakoutRetestPlan(candles: Candle[], _trend: OverallTr
     for (let index = lastIndex - 2; index > breakoutIndex; index -= 1) {
       const candle = candles[index]
       const isRetest = side === 'long'
-        ? candle.low <= level.level + atr * 0.4 && candle.low >= level.level - atr * 0.5
-        : candle.high >= level.level - atr * 0.4 && candle.high <= level.level + atr * 0.5
+        ? candle.low <= level.level + atr * 0.45 && candle.low >= level.level - atr * 0.6 && candle.close >= level.level - atr * 0.1
+        : candle.high >= level.level - atr * 0.45 && candle.high <= level.level + atr * 0.6 && candle.close <= level.level + atr * 0.1
       if (isRetest) {
         retestIndex = index
         break
