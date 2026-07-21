@@ -88,6 +88,7 @@ describe('Bybit market data conversion', () => {
     expect(filterMarketList(markets, '', setupSymbols, true).map((market) => market.symbol)).toEqual(['BTCUSDT', 'SOLUSDT'])
     expect(filterMarketList(markets, 'sol', setupSymbols, true).map((market) => market.symbol)).toEqual(['SOLUSDT'])
     expect(filterMarketList(markets, '', setupSymbols, false)).toHaveLength(3)
+    expect(filterMarketList(markets, '', setupSymbols, true, new Set(['BTCUSDT'])).map((market) => market.symbol)).toEqual(['BTCUSDT'])
   })
 
   it('uses the Bybit tick size for an exact displayed price precision', () => {

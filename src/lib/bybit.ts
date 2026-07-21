@@ -110,10 +110,12 @@ export function filterMarkets(markets: Market[]): Market[] {
     .slice(0, MARKET_LIST_LIMIT)
 }
 
-export function filterMarketList(markets: Market[], query: string, setupSymbols: ReadonlySet<string>, setupsOnly: boolean): Market[] {
+export function filterMarketList(markets: Market[], query: string, setupSymbols: ReadonlySet<string>, setupsOnly: boolean, strategySymbols?: ReadonlySet<string>): Market[] {
   const normalizedQuery = query.trim().toUpperCase()
 
-  return markets.filter((market) => market.symbol.includes(normalizedQuery) && (!setupsOnly || setupSymbols.has(market.symbol)))
+  return markets.filter((market) => market.symbol.includes(normalizedQuery)
+    && (!setupsOnly || setupSymbols.has(market.symbol))
+    && (!strategySymbols || strategySymbols.has(market.symbol)))
 }
 
 export function sortMarketsByTrend(markets: Market[], strengths: Record<string, number>, direction: 'asc' | 'desc'): Market[] {

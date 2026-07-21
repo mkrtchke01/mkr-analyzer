@@ -6,7 +6,7 @@ import TrendPanel from './components/TrendPanel'
 import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, MARKET_LIST_LIMIT, sortMarketsByTrend, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
 import { getSavedSignals, tradePlanFromSavedSignal, type SavedSignal } from './lib/signals'
 import { getMarketInfo, type DivergenceInfo, type MarketInfoSignal } from './lib/marketInfo'
-import { analyzeTrend, getTrendIndicator, SETUP_META, type ManualChartLevel, type RiskRewardBox, type SetupSignal, type TrendAnalysis, type TrendIndicator } from './lib/trend'
+import { analyzeTrend, getTrendIndicator, SETUP_META, type ManualChartLevel, type RiskRewardBox, type SetupSignal, type SetupType, type TrendAnalysis, type TrendIndicator } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
   { symbol: 'BTCUSDT', price: 0, change: 0, turnover: 0 },
@@ -21,6 +21,15 @@ const SAVED_SIGNAL_REFRESH_INTERVAL = 5_000
 type DrawingMode = 'level' | 'risk' | null
 type ChartPoint = { price: number, time: number }
 type TrendSort = 'none' | 'asc' | 'desc'
+type StrategyFilterId = 'breakout-retest' | 'level-breakout' | 'false-breakout' | 'trend-reclaim' | 'divergence'
+
+const STRATEGY_FILTERS: Array<{ id: StrategyFilterId, shortName: string, name: string, setupTypes: SetupType[] }> = [
+  { id: 'breakout-retest', shortName: 'BR', name: 'Пробой + ретест', setupTypes: ['breakout-retest'] },
+  { id: 'level-breakout', shortName: 'LB', name: 'Пробой уровня', setupTypes: ['level-breakout'] },
+  { id: 'false-breakout', shortName: 'FB', name: 'Ложный пробой', setupTypes: ['false-breakout'] },
+  { id: 'trend-reclaim', shortName: 'TR', name: 'Trend Reclaim', setupTypes: ['trend-reclaim'] },
+  { id: 'divergence', shortName: 'DV', name: 'RSI-дивергенция', setupTypes: ['bottom-reversal', 'top-reversal'] },
+]
 
 function baseAsset(symbol: string) {
   return symbol.replace('USDT', '')
@@ -38,6 +47,7 @@ export default function App() {
   const [timeframe, setTimeframe] = useState<Timeframe>('5m')
   const [search, setSearch] = useState('')
   const [setupsOnly, setSetupsOnly] = useState(false)
+  const [strategyFilter, setStrategyFilter] = useState<StrategyFilterId | null>(null)
   const [status, setStatus] = useState<'loading' | 'live' | 'offline'>('loading')
   const [currentPrice, setCurrentPrice] = useState(0)
   const [marketsError, setMarketsError] = useState(false)
@@ -160,7 +170,7 @@ export default function App() {
 
   const activeMarketSetups = useMemo(() => {
     const next: Record<string, SetupSignal[]> = {}
-    savedOpenSignals.filter((signal) => signal.snapshotUrl).forEach((signal) => {
+    savedOpenSignals.forEach((signal) => {
       const savedSetup: SetupSignal = { side: signal.side, type: signal.setupType }
       const current = next[signal.symbol] ?? []
       if (!current.some((setup) => setup.side === savedSetup.side && setup.type === savedSetup.type)) next[signal.symbol] = [...current, savedSetup]
@@ -169,16 +179,25 @@ export default function App() {
   }, [savedOpenSignals])
 
   const setupSymbols = useMemo(() => new Set(Object.keys(activeMarketSetups)), [activeMarketSetups])
+  const strategyCounts = useMemo(() => Object.fromEntries(STRATEGY_FILTERS.map((strategy) => [
+    strategy.id,
+    savedOpenSignals.filter((signal) => strategy.setupTypes.includes(signal.setupType)).length,
+  ])) as Record<StrategyFilterId, number>, [savedOpenSignals])
+  const strategySymbols = useMemo(() => {
+    if (!strategyFilter) return undefined
+    const strategy = STRATEGY_FILTERS.find((item) => item.id === strategyFilter)
+    return new Set(savedOpenSignals.filter((signal) => strategy?.setupTypes.includes(signal.setupType)).map((signal) => signal.symbol))
+  }, [savedOpenSignals, strategyFilter])
   const trendStrengths = useMemo(
     () => Object.fromEntries(Object.entries(marketTrends).map(([marketSymbol, trend]) => [marketSymbol, trend.strength])),
     [marketTrends],
   )
   const visibleMarkets = useMemo(
     () => {
-      const filtered = filterMarketList(markets, search, setupSymbols, setupsOnly)
+      const filtered = filterMarketList(markets, search, setupSymbols, setupsOnly, strategySymbols)
       return (trendSort === 'none' ? filtered : sortMarketsByTrend(filtered, trendStrengths, trendSort)).slice(0, MARKET_LIST_LIMIT)
     },
-    [markets, search, setupSymbols, setupsOnly, trendSort, trendStrengths],
+    [markets, search, setupSymbols, setupsOnly, strategySymbols, trendSort, trendStrengths],
   )
 
   useEffect(() => {
@@ -214,7 +233,7 @@ export default function App() {
 
   const selectedMarket = markets.find((market) => market.symbol === symbol)
   const fixedTradePlans = useMemo(
-    () => savedOpenSignals.filter((signal) => signal.symbol === symbol && signal.snapshotUrl).map(tradePlanFromSavedSignal),
+    () => savedOpenSignals.filter((signal) => signal.symbol === symbol).map(tradePlanFromSavedSignal),
     [savedOpenSignals, symbol],
   )
   const change = selectedMarket?.change ?? 0
@@ -392,10 +411,22 @@ export default function App() {
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Найти монету" aria-label="Найти монету" />
         </label>
         <label className="setups-only-filter">
-          <input type="checkbox" checked={setupsOnly} onChange={(event) => setSetupsOnly(event.target.checked)} />
+          <input type="checkbox" checked={setupsOnly} onChange={(event) => { setSetupsOnly(event.target.checked); if (!event.target.checked) setStrategyFilter(null) }} />
           <span>Только сетапы</span>
           <b>{Object.keys(activeMarketSetups).length}</b>
         </label>
+        <section className="strategy-filter" aria-label="Стратегии сетапов">
+          <span className="strategy-filter-title">СТРАТЕГИИ</span>
+          <div className="strategy-filter-list">
+            {STRATEGY_FILTERS.map((strategy) => <button className={strategyFilter === strategy.id ? 'active' : ''} aria-pressed={strategyFilter === strategy.id} key={strategy.id} onClick={() => {
+              setStrategyFilter((current) => current === strategy.id ? null : strategy.id)
+              setSetupsOnly(true)
+            }}>
+              <span><b>{strategy.shortName}</b>{strategy.name}</span>
+              <strong>{strategyCounts[strategy.id]}</strong>
+            </button>)}
+          </div>
+        </section>
         <div className="list-label"><span>ПАРА</span><button className={`trend-sort ${trendSort !== 'none' ? 'active' : ''}`} onClick={() => setTrendSort((current) => current === 'none' ? 'desc' : current === 'desc' ? 'asc' : 'none')} aria-label="Сортировать по силе тренда">ТРЕНД <i>{trendSort === 'desc' ? '↓' : trendSort === 'asc' ? '↑' : '↕'}</i></button><span>ЦЕНА / 24Ч</span></div>
         <div className="market-list">
           {visibleMarkets.map((market) => (
