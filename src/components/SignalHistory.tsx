@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { formatPrice } from '../lib/bybit'
-import { getSavedSignals, type SavedSignal, type SignalState } from '../lib/signals'
+import { getSavedSignals, getStrategyStats, type SavedSignal, type SignalState } from '../lib/signals'
 import { SETUP_META } from '../lib/trend'
+import type { StrategyStats } from '../lib/strategyStats'
 
 type SignalHistoryProps = {
   openSignals: SavedSignal[]
@@ -28,6 +29,7 @@ export default function SignalHistory({ openSignals, onClose, onSelectSymbol }: 
   const [closedSignals, setClosedSignals] = useState<SavedSignal[]>([])
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<SavedSignal | null>(null)
+  const [strategyStats, setStrategyStats] = useState<StrategyStats[]>([])
   const signals = state === 'open' ? openSignals : closedSignals
 
   useEffect(() => {
@@ -40,6 +42,17 @@ export default function SignalHistory({ openSignals, onClose, onSelectSymbol }: 
       .finally(() => { if (!disposed) setLoading(false) })
     return () => { disposed = true }
   }, [state])
+
+  useEffect(() => {
+    let disposed = false
+    const loadStats = () => void getStrategyStats().then((items) => { if (!disposed) setStrategyStats(items) }).catch(() => { if (!disposed) setStrategyStats([]) })
+    loadStats()
+    const refreshId = window.setInterval(loadStats, 5_000)
+    return () => {
+      disposed = true
+      window.clearInterval(refreshId)
+    }
+  }, [])
 
   const switchState = (next: SignalState) => {
     setState(next)
@@ -59,6 +72,18 @@ export default function SignalHistory({ openSignals, onClose, onSelectSymbol }: 
         </div>
       </header>
       <p className="signal-history-note">Снимок фиксирует свечи и уровни на момент подтверждения сетапа. Дальше сигнал не исчезает, а получает итоговый статус.</p>
+      <section className="strategy-statistics" aria-label="Статистика стратегий">
+        <div className="strategy-statistics-heading"><span>СТРАТЕГИЯ</span><span>ВСЕГО</span><span>ОТКР.</span><span>СТОП</span><span>ПРОФИТ</span><span>PNL</span></div>
+        {strategyStats.map((stat) => <div className="strategy-statistics-row" key={stat.setupType}>
+          <span><b>{SETUP_META[stat.setupType].shortName}</b>{SETUP_META[stat.setupType].name}</span>
+          <span>{stat.total}</span>
+          <span>{stat.open}</span>
+          <span className={stat.stopped ? 'negative' : ''}>{stat.stopped}</span>
+          <span className={stat.profitable ? 'positive' : ''}>{stat.profitable}</span>
+          <strong className={stat.pnl > 0 ? 'positive' : stat.pnl < 0 ? 'negative' : ''}>{stat.pnl >= 0 ? '+' : ''}${stat.pnl.toFixed(2)}</strong>
+        </div>)}
+        {!strategyStats.length && <div className="strategy-statistics-empty">Загружаем статистику…</div>}
+      </section>
       <div className="signal-list">
         {signals.map((signal) => <button key={signal.id} className={`signal-card ${signal.side} ${selected?.id === signal.id ? 'selected' : ''}`} onClick={() => { setSelected(signal); onSelectSymbol(signal.symbol) }}>
           <span className="signal-card-main"><b>{signal.symbol.replace('USDT', '')} · {signal.side.toUpperCase()}</b><small>{SETUP_META[signal.setupType].shortName} · {SETUP_META[signal.setupType].name} · {formatTimestamp(signal.detectedAt)}</small></span>

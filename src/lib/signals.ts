@@ -1,4 +1,5 @@
 import { calculateAccountSummary, type AccountSummary } from './positionSizing'
+import type { StrategyStats } from './strategyStats'
 
 export type SignalState = 'open' | 'closed'
 export type SignalStatus = 'active' | 'tp1' | 'tp2' | 'tp3' | 'stop' | 'expired' | 'ambiguous'
@@ -59,5 +60,12 @@ export async function getAccountSummary(): Promise<AccountSummary> {
   if (!response.ok) throw new Error('Не удалось загрузить баланс')
   const payload = await response.json() as { outcomesR: Array<number | null> }
   return calculateAccountSummary(payload.outcomesR)
+}
+
+export async function getStrategyStats(): Promise<StrategyStats[]> {
+  const response = await fetch('/api/signals?state=statistics')
+  if (!response.ok) throw new Error('Не удалось загрузить статистику стратегий')
+  const payload = await response.json() as { statistics: StrategyStats[] }
+  return payload.statistics
 }
 import { SETUP_META, type TradePlan } from './trend'
