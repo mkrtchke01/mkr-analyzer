@@ -7,7 +7,7 @@ import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSym
 import { getAccountSummary, getSavedSignals, tradePlanFromSavedSignal, type SavedSignal } from './lib/signals'
 import { getMarketInfo, type DivergenceInfo, type MarketInfoSignal } from './lib/marketInfo'
 import { RISK_PER_TRADE_USDT, STARTING_BALANCE_USDT, type AccountSummary } from './lib/positionSizing'
-import { analyzeTrend, getTrendIndicator, SETUP_META, type ManualChartLevel, type RiskRewardBox, type SetupSignal, type SetupType, type TrendAnalysis, type TrendIndicator } from './lib/trend'
+import { analyzeTrend, getTrendIndicator, SCANNER_STRATEGIES, SETUP_META, type ManualChartLevel, type RiskRewardBox, type ScannerStrategyId, type SetupSignal, type TrendAnalysis, type TrendIndicator } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
   { symbol: 'BTCUSDT', price: 0, change: 0, turnover: 0 },
@@ -22,15 +22,7 @@ const SAVED_SIGNAL_REFRESH_INTERVAL = 5_000
 type DrawingMode = 'level' | 'risk' | null
 type ChartPoint = { price: number, time: number }
 type TrendSort = 'none' | 'asc' | 'desc'
-type StrategyFilterId = 'breakout-retest' | 'level-breakout' | 'false-breakout' | 'trend-reclaim' | 'divergence'
-
-const STRATEGY_FILTERS: Array<{ id: StrategyFilterId, shortName: string, name: string, setupTypes: SetupType[] }> = [
-  { id: 'breakout-retest', shortName: 'BR', name: 'Пробой + ретест', setupTypes: ['breakout-retest'] },
-  { id: 'level-breakout', shortName: 'LB', name: 'Пробой уровня', setupTypes: ['level-breakout'] },
-  { id: 'false-breakout', shortName: 'FB', name: 'Ложный пробой', setupTypes: ['false-breakout'] },
-  { id: 'trend-reclaim', shortName: 'TR', name: 'Возврат к тренду', setupTypes: ['trend-reclaim'] },
-  { id: 'divergence', shortName: 'DV', name: 'RSI-дивергенция', setupTypes: ['bottom-reversal', 'top-reversal'] },
-]
+type StrategyFilterId = ScannerStrategyId
 
 function baseAsset(symbol: string) {
   return symbol.replace('USDT', '')
@@ -184,13 +176,13 @@ export default function App() {
   }, [savedOpenSignals])
 
   const setupSymbols = useMemo(() => new Set(Object.keys(activeMarketSetups)), [activeMarketSetups])
-  const strategyCounts = useMemo(() => Object.fromEntries(STRATEGY_FILTERS.map((strategy) => [
+  const strategyCounts = useMemo(() => Object.fromEntries(SCANNER_STRATEGIES.map((strategy) => [
     strategy.id,
     savedOpenSignals.filter((signal) => strategy.setupTypes.includes(signal.setupType)).length,
   ])) as Record<StrategyFilterId, number>, [savedOpenSignals])
   const strategySymbols = useMemo(() => {
     if (!strategyFilter) return undefined
-    const strategy = STRATEGY_FILTERS.find((item) => item.id === strategyFilter)
+    const strategy = SCANNER_STRATEGIES.find((item) => item.id === strategyFilter)
     return new Set(savedOpenSignals.filter((signal) => strategy?.setupTypes.includes(signal.setupType)).map((signal) => signal.symbol))
   }, [savedOpenSignals, strategyFilter])
   const trendStrengths = useMemo(
@@ -429,7 +421,7 @@ export default function App() {
         <section className="strategy-filter" aria-label="Стратегии сетапов">
           <span className="strategy-filter-title">СТРАТЕГИИ</span>
           <div className="strategy-filter-list">
-            {STRATEGY_FILTERS.map((strategy) => <button className={strategyFilter === strategy.id ? 'active' : ''} aria-pressed={strategyFilter === strategy.id} key={strategy.id} onClick={() => {
+            {SCANNER_STRATEGIES.map((strategy) => <button className={strategyFilter === strategy.id ? 'active' : ''} aria-pressed={strategyFilter === strategy.id} key={strategy.id} onClick={() => {
               setStrategyFilter((current) => current === strategy.id ? null : strategy.id)
               setSetupsOnly(true)
             }}>

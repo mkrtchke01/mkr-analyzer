@@ -1,5 +1,5 @@
 import { RISK_PER_TRADE_USDT } from './positionSizing.js'
-import { SETUP_META, type SetupType } from './trend.js'
+import { getScannerStrategy, SCANNER_STRATEGIES, type ScannerStrategyId, type SetupType } from './trend.js'
 
 export type StrategyStatsSignal = {
   setupType: SetupType
@@ -10,7 +10,7 @@ export type StrategyStatsSignal = {
 }
 
 export type StrategyStats = {
-  setupType: SetupType
+  strategyId: ScannerStrategyId
   total: number
   open: number
   stopped: number
@@ -31,18 +31,20 @@ function isProfitClosure(signal: StrategyStatsSignal) {
 }
 
 export function calculateStrategyStats(signals: StrategyStatsSignal[]): StrategyStats[] {
-  const stats = Object.keys(SETUP_META).map((setupType) => ({
-    setupType: setupType as SetupType,
+  const stats = SCANNER_STRATEGIES.map((strategy) => ({
+    strategyId: strategy.id,
     total: 0,
     open: 0,
     stopped: 0,
     profitable: 0,
     pnl: 0,
   }))
-  const bySetupType = new Map(stats.map((item) => [item.setupType, item]))
+  const byStrategyId = new Map(stats.map((item) => [item.strategyId, item]))
 
   signals.forEach((signal) => {
-    const item = bySetupType.get(signal.setupType)
+    const strategy = getScannerStrategy(signal.setupType)
+    if (!strategy) return
+    const item = byStrategyId.get(strategy.id)
     if (!item) return
     item.total += 1
     if (isOpenSignalForStats(signal)) item.open += 1

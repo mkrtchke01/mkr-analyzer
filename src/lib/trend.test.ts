@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateAtr, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, countPreBreakoutLevelTouches, getOverallTrend, getTrendIndicator, hasEnoughBreakoutLevelTouches, selectPrimaryRetestLevel, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateAtr, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, countPreBreakoutLevelTouches, getOverallTrend, getScannerStrategy, getTrendIndicator, hasEnoughBreakoutLevelTouches, selectPrimaryRetestLevel, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -231,6 +231,11 @@ const analysis = (timeframe: TrendAnalysis['timeframe'], direction: TrendAnalysi
 })
 
 describe('trend analysis', () => {
+  it('uses the scanner name for both directions of RSI divergence', () => {
+    expect(getScannerStrategy('bottom-reversal')).toMatchObject({ shortName: 'DV', name: 'RSI-дивергенция' })
+    expect(getScannerStrategy('top-reversal')).toMatchObject({ shortName: 'DV', name: 'RSI-дивергенция' })
+  })
+
   it('calculates an EMA after the requested warm-up period', () => {
     const ema = calculateEma([1, 2, 3, 4, 5], 3)
     expect(ema.slice(0, 3)).toEqual([Number.NaN, Number.NaN, 2])

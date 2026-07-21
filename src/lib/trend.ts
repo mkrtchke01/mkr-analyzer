@@ -5,15 +5,35 @@ export type OverallTrend = 'strong-long' | 'strong-short' | 'flat'
 export type SetupType = 'trend-reclaim' | 'level-breakout' | 'false-breakout' | 'bottom-reversal' | 'top-reversal' | 'breakout-retest' | 'consensus'
 export type SetupSignal = { type: SetupType; side: 'long' | 'short' }
 
+export type ScannerStrategyId = 'breakout-retest' | 'level-breakout' | 'false-breakout' | 'trend-reclaim' | 'divergence'
+export type ScannerStrategy = {
+  id: ScannerStrategyId
+  shortName: string
+  name: string
+  setupTypes: readonly SetupType[]
+}
+
+export const SCANNER_STRATEGIES: readonly ScannerStrategy[] = [
+  { id: 'breakout-retest', shortName: 'BR', name: 'Пробой + ретест', setupTypes: ['breakout-retest'] },
+  { id: 'level-breakout', shortName: 'LB', name: 'Пробой уровня', setupTypes: ['level-breakout'] },
+  { id: 'false-breakout', shortName: 'FB', name: 'Ложный пробой', setupTypes: ['false-breakout'] },
+  { id: 'trend-reclaim', shortName: 'TR', name: 'Возврат к тренду', setupTypes: ['trend-reclaim'] },
+  { id: 'divergence', shortName: 'DV', name: 'RSI-дивергенция', setupTypes: ['bottom-reversal', 'top-reversal'] },
+]
+
+export function getScannerStrategy(setupType: SetupType): ScannerStrategy | undefined {
+  return SCANNER_STRATEGIES.find((strategy) => strategy.setupTypes.includes(setupType))
+}
+
 export const SETUP_META: Record<SetupType, { shortName: string; name: string }> = {
-  'trend-reclaim': { shortName: 'TR', name: 'Возврат к тренду' },
-  'level-breakout': { shortName: 'LB', name: 'Пробой уровня' },
-  'false-breakout': { shortName: 'FB', name: 'Ложный пробой' },
+  'trend-reclaim': SCANNER_STRATEGIES[3],
+  'level-breakout': SCANNER_STRATEGIES[1],
+  'false-breakout': SCANNER_STRATEGIES[2],
   // Направления хранятся разными типами для логики и истории, но для пользователя
   // это одна стратегия: вход после подтверждённой RSI-дивергенции.
-  'bottom-reversal': { shortName: 'DV', name: 'RSI-дивергенция' },
-  'top-reversal': { shortName: 'DV', name: 'RSI-дивергенция' },
-  'breakout-retest': { shortName: 'BR', name: 'Пробой + ретест' },
+  'bottom-reversal': SCANNER_STRATEGIES[4],
+  'top-reversal': SCANNER_STRATEGIES[4],
+  'breakout-retest': SCANNER_STRATEGIES[0],
   // Оставляем метаданные только для уже сохранённых исторических сигналов CS.
   consensus: { shortName: 'CS', name: 'Согласованный тренд' },
 }

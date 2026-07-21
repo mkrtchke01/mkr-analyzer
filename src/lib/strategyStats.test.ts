@@ -10,7 +10,16 @@ describe('strategy statistics', () => {
       { setupType: 'trend-reclaim', status: 'tp1', tp2Price: 110, outcomeR: 1 },
     ])
 
-    expect(result.find((item) => item.setupType === 'breakout-retest')).toMatchObject({ total: 3, open: 1, stopped: 1, profitable: 1, pnl: 2.5 })
-    expect(result.find((item) => item.setupType === 'trend-reclaim')).toMatchObject({ total: 1, open: 1, pnl: 0 })
+    expect(result.find((item) => item.strategyId === 'breakout-retest')).toMatchObject({ total: 3, open: 1, stopped: 1, profitable: 1, pnl: 2.5 })
+    expect(result.find((item) => item.strategyId === 'trend-reclaim')).toMatchObject({ total: 1, open: 1, pnl: 0 })
+  })
+
+  it('groups bullish and bearish RSI divergence signals under one scanner strategy', () => {
+    const result = calculateStrategyStats([
+      { setupType: 'bottom-reversal', status: 'active', outcomeR: null },
+      { setupType: 'top-reversal', status: 'stop', outcomeR: -1 },
+    ])
+
+    expect(result.find((item) => item.strategyId === 'divergence')).toMatchObject({ total: 2, open: 1, stopped: 1, pnl: -2 })
   })
 })

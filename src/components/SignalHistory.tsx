@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { formatPrice } from '../lib/bybit'
 import { getSavedSignals, getStrategyStats, type SavedSignal, type SignalState } from '../lib/signals'
 import { calculatePnlUsd } from '../lib/positionSizing'
-import { SETUP_META } from '../lib/trend'
+import { SCANNER_STRATEGIES, SETUP_META } from '../lib/trend'
 import type { StrategyStats } from '../lib/strategyStats'
 
 type SignalHistoryProps = {
@@ -85,14 +85,16 @@ export default function SignalHistory({ openSignals, onClose, onSelectSymbol }: 
       <p className="signal-history-note">Снимок фиксирует свечи и уровни на момент подтверждения сетапа. Дальше сигнал не исчезает, а получает итоговый статус.</p>
       {state === 'statistics' && <section className="strategy-statistics" aria-label="Статистика стратегий">
         <div className="strategy-statistics-heading"><span>СТРАТЕГИЯ</span><span>ВСЕГО</span><span>ОТКР.</span><span>СТОП</span><span>ПРОФИТ</span><span>PNL</span></div>
-        {strategyStats.map((stat) => <div className="strategy-statistics-row" key={stat.setupType}>
-          <span><b>{SETUP_META[stat.setupType].shortName}</b>{SETUP_META[stat.setupType].name}</span>
+        {strategyStats.map((stat) => {
+          const strategy = SCANNER_STRATEGIES.find((item) => item.id === stat.strategyId)!
+          return <div className="strategy-statistics-row" key={stat.strategyId}>
+          <span><b>{strategy.shortName}</b>{strategy.name}</span>
           <span>{stat.total}</span>
           <span>{stat.open}</span>
           <span className={stat.stopped ? 'negative' : ''}>{stat.stopped}</span>
           <span className={stat.profitable ? 'positive' : ''}>{stat.profitable}</span>
           <strong className={stat.pnl > 0 ? 'positive' : stat.pnl < 0 ? 'negative' : ''}>{stat.pnl >= 0 ? '+' : ''}${stat.pnl.toFixed(2)}</strong>
-        </div>)}
+        </div>})}
         {!strategyStats.length && <div className="strategy-statistics-empty">Загружаем статистику…</div>}
       </section>}
       {state !== 'statistics' && <div className="signal-list">
