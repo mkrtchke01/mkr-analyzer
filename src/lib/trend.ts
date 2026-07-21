@@ -290,6 +290,7 @@ export type TrendReclaimContext = {
 
 export type LevelBreakoutContext = {
   hourlyCandles: Candle[]
+  fifteenMinuteCandles?: Candle[]
 }
 
 export type DivergenceReversalContext = {
@@ -478,17 +479,32 @@ function findSignificantHourlyLevels(candles: Candle[], kind: 'high' | 'low'): S
   return levels
 }
 
-function findRecentHourlyRetestLevels(candles: Candle[], side: 'long' | 'short'): HourlyRange[] {
+type RetestLevel = HourlyRange & { side: 'long' | 'short' }
+
+function findRecentFifteenMinuteRetestLevels(candles: Candle[]): RetestLevel[] {
   const atr = calculateAtr(candles)
   if (!atr) return []
-  const kind = side === 'long' ? 'high' : 'low'
-  return findSignificantHourlyLevels(candles, kind).map((level) => ({
-    level: level.level,
-    // For a lone pivot there is no consolidation height. Keep the measured target bounded by volatility.
-    height: Math.min(atr * 3, Math.max(atr * 1.5, atr * level.reactionAtr)),
-    touches: level.touches,
-    endTime: level.time,
-  }))
+  const levels: RetestLevel[] = []
+
+  for (const [kind, side] of [['high', 'long'], ['low', 'short']] as const) {
+    for (let index = candles.length - 3; index >= Math.max(2, candles.length - 100); index -= 1) {
+      if (!isSwingAt(candles, index, kind)) continue
+      const level = kind === 'high' ? candles[index].high : candles[index].low
+      if (levels.some((candidate) => candidate.side === side && Math.abs(candidate.level - level) < atr * 0.15)) continue
+      const reaction = kind === 'high'
+        ? level - Math.min(...candles.slice(index + 1).map((candle) => candle.low))
+        : Math.max(...candles.slice(index + 1).map((candle) => candle.high)) - level
+      levels.push({
+        side,
+        level,
+        height: Math.min(atr * 3, Math.max(atr * 1.25, reaction)),
+        touches: 1,
+        endTime: candles[index].time,
+      })
+    }
+  }
+
+  return levels
 }
 
 function findHourlyTargets(candles: Candle[], side: 'long' | 'short', entry: number): number[] {
@@ -697,8 +713,8 @@ function findHourlyRsiDivergence(candles: Candle[]): HourlyRsiDivergence | undef
         const firstRsi = rsiAtPivot(candles, rsiByTime, firstIndex, kind)
         if (firstRsi === undefined) continue
         const hasDivergence = side === 'long'
-          ? candles[secondIndex].low < candles[firstIndex].low - atr * 0.25 && secondRsi > firstRsi + 3
-          : candles[secondIndex].high > candles[firstIndex].high + atr * 0.25 && secondRsi < firstRsi - 3
+          ? candles[secondIndex].low < candles[firstIndex].low - atr * 0.05 && secondRsi > firstRsi + 3
+          : candles[secondIndex].high > candles[firstIndex].high + atr * 0.05 && secondRsi < firstRsi - 3
         if (hasDivergence) return { side, firstIndex, secondIndex, secondPrice: side === 'long' ? candles[secondIndex].low : candles[secondIndex].high }
       }
     }
@@ -751,6 +767,25 @@ function buildDivergenceTargets(entry: number, stopPrice: number, side: 'long' |
   }))
 }
 
+function buildBreakoutRetestTargets(entry: number, stopPrice: number, side: 'long' | 'short', fifteenMinuteCandles: Candle[]): TakeProfitLevel[] | undefined {
+  const risk = side === 'long' ? entry - stopPrice : stopPrice - entry
+  if (risk <= 0) return undefined
+
+  const direction = side === 'long' ? 1 : -1
+  const firstTarget = entry + direction * risk * 3
+  const secondTarget = findFifteenMinuteTargets(fifteenMinuteCandles, side, entry)
+    .find((price) => side === 'long' ? price >= entry + direction * risk * 4 : price <= entry + direction * risk * 4)
+  const prices = secondTarget === undefined ? [firstTarget] : [firstTarget, secondTarget]
+  const shares = prices.length === 2 ? [50, 50] : [100]
+
+  return prices.map((price, index) => ({
+    id: `TP${index + 1}` as TakeProfitLevel['id'],
+    price,
+    share: shares[index],
+    riskMultiple: (side === 'long' ? price - entry : entry - price) / risk,
+  }))
+}
+
 export function calculateDivergenceReversalPlan(context?: DivergenceReversalContext): TradePlan | null {
   if (!context) return null
   const divergenceCandles = context.hourlyDivergenceCandles ?? context.hourlyCandles
@@ -788,26 +823,23 @@ export function calculateDivergenceReversalPlan(context?: DivergenceReversalCont
   }
 }
 
-export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTrend, context?: LevelBreakoutContext): TradePlan | null {
-  if (trend === 'flat' || candles.length < PERIOD + 10 || !context) return null
-
-  const side = trend === 'strong-long' ? 'long' : 'short'
+export function calculateBreakoutRetestPlan(candles: Candle[], _trend: OverallTrend, context?: LevelBreakoutContext): TradePlan | null {
+  if (candles.length < PERIOD + 10 || !context?.fifteenMinuteCandles) return null
   const atr = calculateAtr(candles)
   if (!atr) return null
 
   const lastIndex = candles.length - 1
   const current = candles[lastIndex]
-  if (!hasDirectionalReclaim(candles, side)) return null
-
-  for (const hourlyRange of findRecentHourlyRetestLevels(context.hourlyCandles, side)) {
+  for (const level of findRecentFifteenMinuteRetestLevels(context.fifteenMinuteCandles)) {
+    const { side } = level
     let breakoutIndex = -1
     for (let index = lastIndex - 1; index >= Math.max(1, lastIndex - 144); index -= 1) {
       const candle = candles[index]
       const previous = candles[index - 1]
       const brokeLevel = side === 'long'
-        ? candle.close > hourlyRange.level + atr * 0.1 && previous.close <= hourlyRange.level + atr * 0.1
-        : candle.close < hourlyRange.level - atr * 0.1 && previous.close >= hourlyRange.level - atr * 0.1
-      if (candle.time >= hourlyRange.endTime && brokeLevel) {
+        ? candle.close > level.level + atr * 0.05 && previous.close <= level.level + atr * 0.05
+        : candle.close < level.level - atr * 0.05 && previous.close >= level.level - atr * 0.05
+      if (candle.time >= level.endTime && brokeLevel) {
         breakoutIndex = index
         break
       }
@@ -818,33 +850,38 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
     for (let index = lastIndex - 2; index > breakoutIndex; index -= 1) {
       const candle = candles[index]
       const isRetest = side === 'long'
-        ? candle.low <= hourlyRange.level + atr * 0.6 && candle.low >= hourlyRange.level - atr * 0.8 && candle.close >= hourlyRange.level - atr * 0.2
-        : candle.high >= hourlyRange.level - atr * 0.6 && candle.high <= hourlyRange.level + atr * 0.8 && candle.close <= hourlyRange.level + atr * 0.2
+        ? candle.low <= level.level + atr * 0.4 && candle.low >= level.level - atr * 0.5
+        : candle.high >= level.level - atr * 0.4 && candle.high <= level.level + atr * 0.5
       if (isRetest) {
         retestIndex = index
         break
       }
     }
-    if (retestIndex < 0 || retestIndex < lastIndex - 36) continue
+    if (retestIndex < 0 || retestIndex >= lastIndex) continue
+    const responseCandles = candles.slice(retestIndex + 1)
+    const hasReversal = responseCandles.some((candle) => side === 'long'
+      ? candle.close > candle.open && candle.close >= level.level
+      : candle.close < candle.open && candle.close <= level.level)
+    const localExtreme = side === 'long'
+      ? Math.max(...candles.slice(breakoutIndex, retestIndex + 1).map((candle) => candle.high))
+      : Math.min(...candles.slice(breakoutIndex, retestIndex + 1).map((candle) => candle.low))
+    const remainsBelowLocalExtreme = side === 'long'
+      ? current.high < localExtreme && current.close >= level.level
+      : current.low > localExtreme && current.close <= level.level
+    if (!hasReversal || !remainsBelowLocalExtreme) continue
 
-    const holdsAfterBreakout = candles.slice(breakoutIndex + 1).every((candle) => side === 'long'
-      ? candle.close >= hourlyRange.level - atr * 0.8
-      : candle.close <= hourlyRange.level + atr * 0.8)
-    if (!holdsAfterBreakout) continue
-
-    const localStop = findLatestSwingAfter(candles, side === 'long' ? 'low' : 'high', breakoutIndex + 1)
-    if (!localStop) continue
-    const stopPrice = side === 'long' ? localStop.price - atr * 0.25 : localStop.price + atr * 0.25
+    const retest = candles[retestIndex]
+    const stopPrice = side === 'long' ? retest.low - atr * 0.25 : retest.high + atr * 0.25
     const risk = side === 'long' ? current.close - stopPrice : stopPrice - current.close
     if (risk <= 0) continue
 
-    const takeProfits = buildStructuralTargets(current.close, stopPrice, side, hourlyRange, context.hourlyCandles)
+    const takeProfits = buildBreakoutRetestTargets(current.close, stopPrice, side, context.fifteenMinuteCandles)
     if (!takeProfits) continue
 
     return {
       setupType: 'breakout-retest',
       setupName: SETUP_META['breakout-retest'].name,
-      setupNote: `Ретест 1h уровня ${hourlyRange.level.toPrecision(6)} · 5m реакция подтверждена 2 свечами`,
+      setupNote: `Пробой 15m уровня ${level.level.toPrecision(6)} · 5m ретест с реакцией, до пробоя локального экстремума · TP1 3R, TP2 прошлый 15m уровень от 4R`,
       stop: {
         side,
         entry: current.close,
@@ -853,6 +890,7 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
         distanceAtr: risk / atr,
       },
       takeProfits,
+      signalKey: `${level.endTime}:${candles[breakoutIndex].time}`,
     }
   }
 

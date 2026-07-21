@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, hasEnoughBreakoutLevelTouches, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateAtr, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, hasEnoughBreakoutLevelTouches, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -393,6 +393,20 @@ describe('trend analysis', () => {
     expect(plan!.setupNote).toContain('5 свечей')
   })
 
+  it('accepts a shallow price extension when the RSI divergence is clear', () => {
+    const hourlyCandles = makeFastHourlyBullishDivergence()
+    hourlyCandles[26] = { ...hourlyCandles[26], low: 93.2 }
+    const extension = hourlyCandles[21].low - hourlyCandles[26].low
+
+    expect(extension).toBeGreaterThan(calculateAtr(hourlyCandles) * 0.05)
+    expect(extension).toBeLessThan(calculateAtr(hourlyCandles) * 0.25)
+    expect(calculateDivergenceReversalPlan({
+      hourlyCandles,
+      fifteenMinuteCandles: makeFifteenMinuteBullishReversal(),
+      fiveMinuteCandles: makeFiveMinuteBullishReclaim(),
+    })).toMatchObject({ setupType: 'bottom-reversal', stop: { side: 'long' } })
+  })
+
   it('accepts a second 5m candle below the first close when it holds its own open', () => {
     const fiveMinuteCandles = makeFiveMinuteBullishReclaim()
     fiveMinuteCandles[31] = { ...fiveMinuteCandles[31], open: 94.6, close: 94.8 }
@@ -420,29 +434,68 @@ describe('trend analysis', () => {
   })
 
   it('builds a breakout-retest plan after a bullish reaction from the broken resistance', () => {
-    const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'strong-long', { hourlyCandles: makeHourlyRetestRange() })
+    const fifteenMinuteCandles = makeHourlyRetestRange()
+    const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'flat', { hourlyCandles: makeHourlyRetestRange(), fifteenMinuteCandles })
 
     expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'long' } })
-    expect(plan!.setupNote).toContain('Ретест 1h уровня')
+    expect(plan!.setupNote).toContain('Пробой 15m уровня')
     expect(plan!.stop.price).toBeLessThan(plan!.stop.entry)
-    expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.5)
-    expect(plan!.takeProfits[1].price).toBeGreaterThan(plan!.takeProfits[0].price)
+    expect(plan!.takeProfits[0].riskMultiple).toBe(3)
+    expect(plan!.takeProfits).toHaveLength(1)
   })
 
-  it('builds a breakout-retest plan from a lone significant 1h pivot without consolidation', () => {
-    const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'strong-long', { hourlyCandles: makeHourlyRetestPivot() })
+  it('adds TP2 only at a previous 15m level that offers at least 4R', () => {
+    const fifteenMinuteCandles = makeHourlyRetestRange()
+    fifteenMinuteCandles[50] = { ...fifteenMinuteCandles[50], high: 120 }
+    const plan = calculateBreakoutRetestPlan(makeBreakoutRetestCandles(), 'flat', {
+      hourlyCandles: makeHourlyRetestRange(),
+      fifteenMinuteCandles,
+    })
 
-    expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'long' } })
-    expect(plan!.setupNote).toContain('Ретест 1h уровня')
-    expect(plan!.takeProfits[0].riskMultiple).toBeGreaterThanOrEqual(1.25)
+    expect(plan!.takeProfits).toHaveLength(2)
+    expect(plan!.takeProfits[0].riskMultiple).toBe(3)
+    expect(plan!.takeProfits[1].riskMultiple).toBeGreaterThanOrEqual(4)
   })
 
   it('mirrors the breakout-retest plan for a short after resistance retest', () => {
-    const plan = calculateBreakoutRetestPlan(mirrorCandles(makeBreakoutRetestCandles()), 'strong-short', { hourlyCandles: mirrorCandles(makeHourlyRetestRange()) })
+    const fifteenMinuteCandles = mirrorCandles(makeHourlyRetestRange())
+    const plan = calculateBreakoutRetestPlan(mirrorCandles(makeBreakoutRetestCandles()), 'flat', { hourlyCandles: mirrorCandles(makeHourlyRetestRange()), fifteenMinuteCandles })
 
     expect(plan).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'short' } })
     expect(plan!.stop.price).toBeGreaterThan(plan!.stop.entry)
-    expect(plan!.takeProfits[1].price).toBeLessThan(plan!.takeProfits[0].price)
+    expect(plan!.takeProfits[0].riskMultiple).toBe(3)
+  })
+
+  it('requires one 5m reversal candle after the retest', () => {
+    const candles = makeBreakoutRetestCandles()
+    candles[22] = { ...candles[22], open: 105.2, close: 105.1 }
+    candles[23] = { ...candles[23], open: 106, close: 105.8 }
+
+    expect(calculateBreakoutRetestPlan(candles, 'flat', {
+      hourlyCandles: makeHourlyRetestRange(),
+      fifteenMinuteCandles: makeHourlyRetestRange(),
+    })).toBeNull()
+  })
+
+  it('keeps a retest setup active after the reversal candle until the local high breaks', () => {
+    const candles = makeBreakoutRetestCandles()
+    candles[22] = { ...candles[22], open: 105.1, close: 105.8 }
+    candles[23] = { ...candles[23], open: 105.8, high: 106.4, low: 105.5, close: 105.6 }
+
+    expect(calculateBreakoutRetestPlan(candles, 'flat', {
+      hourlyCandles: makeHourlyRetestRange(),
+      fifteenMinuteCandles: makeHourlyRetestRange(),
+    })).toMatchObject({ setupType: 'breakout-retest', stop: { side: 'long' } })
+  })
+
+  it('expires a retest setup after price breaks the local high', () => {
+    const candles = makeBreakoutRetestCandles()
+    candles[23] = { ...candles[23], high: 107.3, close: 107.2 }
+
+    expect(calculateBreakoutRetestPlan(candles, 'flat', {
+      hourlyCandles: makeHourlyRetestRange(),
+      fifteenMinuteCandles: makeHourlyRetestRange(),
+    })).toBeNull()
   })
 
   it('does not create a breakout-retest plan without 1h level context', () => {
