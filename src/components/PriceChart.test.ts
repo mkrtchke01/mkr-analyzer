@@ -45,9 +45,9 @@ describe('PriceChart options', () => {
       endTime: 1_719_999_900,
       price: 100,
       endPrice: 100,
-      label: 'BR ENTRY LONG',
       extendRight: true,
-      dashed: false,
+      lineWidth: 1,
+      dashed: true,
     }))
   })
 

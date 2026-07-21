@@ -68,7 +68,7 @@ class ChartLevelsPaneView implements ISeriesPrimitivePaneView {
         endX: getLevelStartX(endX),
         y,
         endY,
-        lineWidth: 2,
+        lineWidth: level.lineWidth ?? 2,
         color: level.color ?? '#f5bc5b',
         dashed: level.dashed ?? true,
       }]

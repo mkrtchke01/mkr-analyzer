@@ -60,6 +60,7 @@ export type ManualChartLevel = {
   endTime: number
   color?: string
   label?: string
+  lineWidth?: number
   dashed?: boolean
   extendRight?: boolean
 }

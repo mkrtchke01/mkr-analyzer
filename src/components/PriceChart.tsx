@@ -76,7 +76,6 @@ const timeframeSeconds: Record<Timeframe, number> = { '5m': 300, '15m': 900, '1h
 export function entryLevelFromTradePlan(tradePlan: TradePlan, timeframe: Timeframe): ManualChartLevel | undefined {
   if (tradePlan.entryTime === undefined) return undefined
   const startTime = Math.floor(tradePlan.entryTime / timeframeSeconds[timeframe]) * timeframeSeconds[timeframe]
-  const setupName = SETUP_META[tradePlan.setupType].shortName
   return {
     id: `entry-${tradePlan.setupType}-${tradePlan.stop.side}-${tradePlan.entryTime}`,
     price: tradePlan.stop.entry,
@@ -84,8 +83,8 @@ export function entryLevelFromTradePlan(tradePlan: TradePlan, timeframe: Timefra
     endPrice: tradePlan.stop.entry,
     endTime: startTime,
     color: '#6bd5ff',
-    label: `${setupName} ENTRY ${tradePlan.stop.side.toUpperCase()}`,
-    dashed: false,
+    lineWidth: 1,
+    dashed: true,
     extendRight: true,
   }
 }
@@ -141,6 +140,15 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       if (stopPrice === undefined) return
       const { stop, takeProfits } = tradePlan
       const setupName = SETUP_META[tradePlan.setupType].shortName
+      if (tradePlan.entryTime !== undefined) {
+        tradeLinesRef.current.push(series.createPriceLine({
+          price: stop.entry,
+          color: '#6bd5ff',
+          lineVisible: false,
+          axisLabelVisible: true,
+          title: `${setupName} ENTRY ${stop.side.toUpperCase()}`,
+        }))
+      }
       tradeLinesRef.current.push(series.createPriceLine({
         price: stopPrice,
         color: '#ff667a',
