@@ -5,6 +5,7 @@ import { calculateRsi, calculateRsiSma, type RsiPoint } from '../lib/rsi'
 import type { DivergenceInfo } from '../lib/marketInfo'
 import { SETUP_META, type ManualChartLevel, type RiskRewardBox, type TradePlan } from '../lib/trend'
 import { ChartLevelsPrimitive } from './ChartLevels'
+import { MeasurementPrimitive, type ChartMeasurement } from './Measurement'
 import { createRiskRewardBox, getRiskRewardHandle, RiskRewardPrimitive } from './RiskReward'
 import RsiPanel from './RsiPanel'
 
@@ -97,7 +98,10 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
   const tradeLinesRef = useRef<IPriceLine[]>([])
   const levelPrimitiveRef = useRef<ChartLevelsPrimitive | null>(null)
   const riskRewardPrimitiveRef = useRef<RiskRewardPrimitive | null>(null)
+  const measurementPrimitiveRef = useRef<MeasurementPrimitive | null>(null)
+  const measurementGestureRef = useRef(false)
   const [drawingPreview, setDrawingPreview] = useState<{ price: number, time: number } | null>(null)
+  const [measurement, setMeasurement] = useState<ChartMeasurement | null>(null)
   const [rsiData, setRsiData] = useState<RsiPoint[]>([])
   const [rsiAverage, setRsiAverage] = useState<RsiPoint[]>([])
   const [candleCount, setCandleCount] = useState(0)
@@ -184,6 +188,23 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
   }, [])
 
   useEffect(() => {
+    const series = seriesRef.current
+    if (!series) return
+
+    const primitive = new MeasurementPrimitive(null, timeframeSeconds[timeframe])
+    measurementPrimitiveRef.current = primitive
+    series.attachPrimitive(primitive)
+    return () => {
+      series.detachPrimitive(primitive)
+      measurementPrimitiveRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    measurementPrimitiveRef.current?.setMeasurement(measurement, timeframeSeconds[timeframe])
+  }, [measurement, timeframe])
+
+  useEffect(() => {
     const chart = chartRef.current
     if (!chart) return
     const syncRsiRange = (range: { from: number, to: number } | null) => setRsiVisibleRange(range)
@@ -226,6 +247,47 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
   }, [drawingAnchor, drawingMode])
 
   useEffect(() => {
+    const container = containerRef.current
+    const chart = chartRef.current
+    const series = seriesRef.current
+    if (!container || !chart || !series) return
+
+    const pointFromPointer = (event: PointerEvent) => {
+      const bounds = container.getBoundingClientRect()
+      const price = series.coordinateToPrice(event.clientY - bounds.top)
+      const time = chart.timeScale().coordinateToTime(event.clientX - bounds.left)
+      return price === null || time === null ? null : { price, time: Number(time) }
+    }
+    const startMeasurement = (event: PointerEvent) => {
+      if (!event.shiftKey || event.button !== 0) return
+      const point = pointFromPointer(event)
+      if (!point) return
+      measurementGestureRef.current = true
+      setMeasurement({ start: point, end: point })
+    }
+    const moveMeasurement = (event: PointerEvent) => {
+      if (!event.shiftKey) return
+      const point = pointFromPointer(event)
+      if (!point) return
+      setMeasurement((current) => current ? { ...current, end: point } : current)
+    }
+    const clearMeasurement = (event: KeyboardEvent) => {
+      if (event.key !== 'Shift') return
+      measurementGestureRef.current = false
+      setMeasurement(null)
+    }
+
+    container.addEventListener('pointerdown', startMeasurement)
+    container.addEventListener('pointermove', moveMeasurement)
+    window.addEventListener('keyup', clearMeasurement)
+    return () => {
+      container.removeEventListener('pointerdown', startMeasurement)
+      container.removeEventListener('pointermove', moveMeasurement)
+      window.removeEventListener('keyup', clearMeasurement)
+    }
+  }, [])
+
+  useEffect(() => {
     const series = seriesRef.current
     if (!series) return
 
@@ -251,6 +313,10 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
     if (!chart || !series || !drawingMode) return
 
     const addDrawingPoint = (event: { point?: { x: number, y: number } }) => {
+      if (measurementGestureRef.current) {
+        measurementGestureRef.current = false
+        return
+      }
       if (!event.point) return
       const rawPrice = series.coordinateToPrice(event.point.y)
       const time = chart.timeScale().coordinateToTime(event.point.x)
