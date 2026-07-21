@@ -3,8 +3,23 @@ import { getPublicSnapshotUrl, supabaseRequest } from '../_lib/supabase.js'
 // $50 is the account baseline at the moment fixed-risk sizing is enabled.
 // Historical scanner results must not alter a newly funded account.
 const ACCOUNT_BALANCE_STARTED_AT = '2026-07-21T12:21:00.000Z'
+const ONE_TIME_RESET_NONCE = '9d9b2aae1da34c5aac7728826deed6308c3f2ad17db249a5a1d3c10d2eb0949d'
 
 export default async function handler(request: any, response: any) {
+  if (request.method === 'DELETE') {
+    if (request.headers['x-one-time-reset-nonce'] !== ONE_TIME_RESET_NONCE) return response.status(404).json({ error: 'Not found' })
+    try {
+      const cleared = await supabaseRequest<Array<{ id: string }>>('/rest/v1/mkr_signals?id=not.is.null', {
+        method: 'DELETE',
+        headers: { Prefer: 'return=representation' },
+      })
+      response.setHeader('Cache-Control', 'no-store')
+      return response.status(200).json({ cleared: cleared.length })
+    } catch (error) {
+      return response.status(500).json({ error: error instanceof Error ? error.message : 'Failed to reset signals' })
+    }
+  }
+
   if (request.method !== 'GET') return response.status(405).json({ error: 'Method not allowed' })
 
   try {
