@@ -14,6 +14,7 @@ const savedSignal: SavedSignal = {
   initialStopPrice: 95,
   tp1Price: 107.5,
   tp2Price: 115,
+  signalStrength: null,
   lastPrice: 103,
   outcomeR: null,
   snapshotUrl: 'https://example.com/signal.svg',

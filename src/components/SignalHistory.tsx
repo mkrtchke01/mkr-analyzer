@@ -3,6 +3,7 @@ import { formatPrice } from '../lib/bybit'
 import { getSavedSignals, getStrategyStats, type SavedSignal, type SignalState } from '../lib/signals'
 import { calculatePnlUsd } from '../lib/positionSizing'
 import { SCANNER_STRATEGIES, SETUP_META } from '../lib/trend'
+import SetupStrength from './SetupStrength'
 import type { StrategyStats } from '../lib/strategyStats'
 
 type SignalHistoryProps = {
@@ -101,6 +102,7 @@ export default function SignalHistory({ openSignals, onClose, onSelectSymbol }: 
         {signals.map((signal) => <button key={signal.id} className={`signal-card ${signal.side} ${selected?.id === signal.id ? 'selected' : ''}`} onClick={() => { setSelected(signal); onSelectSymbol(signal.symbol) }}>
           <span className="signal-card-main"><b>{signal.symbol.replace('USDT', '')} · {signal.side.toUpperCase()}</b><small>{SETUP_META[signal.setupType].shortName} · {SETUP_META[signal.setupType].name} · {formatTimestamp(signal.detectedAt)}</small></span>
           <span className={`signal-status-badge ${signal.status}`}>{statusText[signal.status]}</span>
+          <SetupStrength score={signal.signalStrength} />
           <span className="signal-card-price">Вход {formatPrice(signal.entryPrice)}<small>Стоп {formatPrice(signal.initialStopPrice)} · {signal.tp2Price === undefined ? 'TP1 — финальная цель' : `TP2 ${formatPrice(signal.tp2Price)}`}</small></span>
           <span className={signal.outcomeR === null ? 'signal-r' : signal.outcomeR >= 0 ? 'signal-r positive' : 'signal-r negative'}>{state === 'closed' ? formatPnlUsd(signal.outcomeR) : signal.outcomeR === null ? '—' : `${signal.outcomeR >= 0 ? '+' : ''}${signal.outcomeR.toFixed(2)}R`}</span>
         </button>)}

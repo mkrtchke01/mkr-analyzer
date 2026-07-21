@@ -3,6 +3,7 @@ import PriceChart from './components/PriceChart'
 import { createRiskRewardBox } from './components/RiskReward'
 import SignalHistory from './components/SignalHistory'
 import TrendPanel, { TradePlans } from './components/TrendPanel'
+import SetupStrength from './components/SetupStrength'
 import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, MARKET_LIST_LIMIT, sortMarketsByTrend, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
 import { getAccountSummary, getSavedSignals, tradePlanFromSavedSignal, type SavedSignal } from './lib/signals'
 import { getMarketInfo, type DivergenceInfo, type MarketInfoSignal } from './lib/marketInfo'
@@ -176,6 +177,7 @@ export default function App() {
   }, [savedOpenSignals])
 
   const setupSymbols = useMemo(() => new Set(Object.keys(activeMarketSetups)), [activeMarketSetups])
+  const setupStrengths = useMemo(() => Object.fromEntries(savedOpenSignals.map((signal) => [signal.symbol, signal.signalStrength])) as Record<string, number | null>, [savedOpenSignals])
   const strategyCounts = useMemo(() => Object.fromEntries(SCANNER_STRATEGIES.map((strategy) => [
     strategy.id,
     savedOpenSignals.filter((signal) => strategy.setupTypes.includes(signal.setupType)).length,
@@ -430,13 +432,14 @@ export default function App() {
             </button>)}
           </div>
         </section>
-        <div className="list-label"><span>ПАРА</span><button className={`trend-sort ${trendSort !== 'none' ? 'active' : ''}`} onClick={() => setTrendSort((current) => current === 'none' ? 'desc' : current === 'desc' ? 'asc' : 'none')} aria-label="Сортировать по силе тренда">ТРЕНД <i>{trendSort === 'desc' ? '↓' : trendSort === 'asc' ? '↑' : '↕'}</i></button><span>ЦЕНА / 24Ч</span></div>
+        <div className="list-label"><span>ПАРА</span><button className={`trend-sort ${trendSort !== 'none' ? 'active' : ''}`} onClick={() => setTrendSort((current) => current === 'none' ? 'desc' : current === 'desc' ? 'asc' : 'none')} aria-label="Сортировать по силе тренда">ТРЕНД <i>{trendSort === 'desc' ? '↓' : trendSort === 'asc' ? '↑' : '↕'}</i></button><span>СИЛА</span><span>ЦЕНА / 24Ч</span></div>
         <div className="market-list">
           {visibleMarkets.map((market) => (
             <button className={`market-row ${market.symbol === symbol ? 'selected' : ''} ${activeMarketSetups[market.symbol]?.[0] ? `setup-${activeMarketSetups[market.symbol]![0].side}` : ''}`} key={market.symbol} onClick={() => setSymbol(market.symbol)}>
               <span className="coin-icon">{baseAsset(market.symbol).slice(0, 1)}</span>
               <span className="coin-name"><span className="market-symbol"><b>{baseAsset(market.symbol)}</b>{activeMarketSetups[market.symbol]?.map((setup) => <em key={`${setup.type}-${setup.side}`}>{`${SETUP_META[setup.type].shortName} ${setup.side.toUpperCase()}`}</em>)}</span><small>USDT · PERP</small></span>
               <span className={`market-trend ${marketTrends[market.symbol]?.direction ?? 'flat'}`} title="Сила тренда"><i style={{ width: `${marketTrends[market.symbol]?.strength ?? 0}%` }} /></span>
+              <SetupStrength score={setupStrengths[market.symbol]} />
               <span className="market-values"><b>{market.price ? formatPrice(market.price, market.pricePrecision) : '—'}</b><small className={market.change >= 0 ? 'positive' : 'negative'}>{market.change >= 0 ? '+' : ''}{market.change.toFixed(2)}%</small></span>
             </button>
           ))}

@@ -64,6 +64,15 @@ export type TakeProfitLevel = {
   riskMultiple: number
 }
 
+export type SignalStrength = {
+  score: number
+  context: number
+  trend: number
+  reward: number
+  entry: number
+  pattern: number
+}
+
 export type TradePlan = {
   setupType: SetupType
   setupName: string
@@ -72,6 +81,7 @@ export type TradePlan = {
   takeProfits: TakeProfitLevel[]
   signalKey?: string
   entryTime?: number
+  signalStrength?: SignalStrength
 }
 
 export type ManualChartLevel = {

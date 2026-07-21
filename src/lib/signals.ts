@@ -18,6 +18,7 @@ export type SavedSignal = {
   tp1Price: number
   tp2Price?: number
   takeProfits?: TradePlan['takeProfits']
+  signalStrength: number | null
   lastPrice: number
   outcomeR: number | null
   snapshotUrl: string | null

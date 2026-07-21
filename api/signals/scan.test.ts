@@ -43,7 +43,7 @@ describe('signal persistence', () => {
     await expect(persistPlan('AXTIUSDT', plan, [], [candle])).resolves.toBe(true)
 
     const insertPayload = JSON.parse(mocks.supabaseRequest.mock.calls[0][1].body)
-    expect(insertPayload).toMatchObject({ symbol: 'AXTIUSDT', snapshot_path: null, setup_type: 'breakout-retest' })
+    expect(insertPayload).toMatchObject({ symbol: 'AXTIUSDT', snapshot_path: null, setup_type: 'breakout-retest', plan_snapshot: { signalStrength: { score: 4 } } })
     expect(mocks.supabaseRequest.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false)
     expect(mocks.uploadSnapshot).toHaveBeenCalledOnce()
   })

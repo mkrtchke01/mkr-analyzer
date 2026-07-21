@@ -1,9 +1,17 @@
 import { getPublicSnapshotUrl, supabaseRequest } from '../_lib/supabase.js'
 import { calculateStrategyStats, type StrategyStatsSignal } from '../../src/lib/strategyStats.js'
+import { calculateSignalStrength } from '../../src/lib/signalStrength.js'
 
 // $50 is the account baseline at the moment fixed-risk sizing is enabled.
 // Historical scanner results must not alter a newly funded account.
 const ACCOUNT_BALANCE_STARTED_AT = '2026-07-21T12:21:00.000Z'
+
+function signalStrengthFromSnapshot(record: any): number | null {
+  const storedScore = Number(record.plan_snapshot?.signalStrength?.score)
+  if (Number.isInteger(storedScore) && storedScore >= 1 && storedScore <= 10) return storedScore
+  if (!record.plan_snapshot?.stop || !Array.isArray(record.plan_snapshot?.takeProfits)) return null
+  return calculateSignalStrength(record.plan_snapshot, Array.isArray(record.trend_snapshot) ? record.trend_snapshot : []).score
+}
 
 export default async function handler(request: any, response: any) {
   if (request.method !== 'GET') return response.status(405).json({ error: 'Method not allowed' })
@@ -53,6 +61,7 @@ export default async function handler(request: any, response: any) {
         tp1Price: Number(record.tp1_price),
         tp2Price: record.tp2_price === null ? undefined : Number(record.tp2_price),
         takeProfits: record.plan_snapshot?.takeProfits,
+        signalStrength: signalStrengthFromSnapshot(record),
         lastPrice: Number(record.last_price),
         outcomeR: record.outcome_r === null ? null : Number(record.outcome_r),
         snapshotUrl: getPublicSnapshotUrl(record.snapshot_path),

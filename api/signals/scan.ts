@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { getCandles, getMarkets, type Candle, type Timeframe } from '../../src/lib/bybit.js'
 import { createSignalSnapshot } from '../../src/lib/signalSnapshot.js'
 import { evaluateSignalCandle, type ManagedSignal } from '../../src/lib/signalLifecycle.js'
+import { calculateSignalStrength } from '../../src/lib/signalStrength.js'
 import { analyzeTrend, calculateTradePlans, getOverallTrend, type SetupType, type TradePlan, type TrendAnalysis } from '../../src/lib/trend.js'
 import { isAuthorizedCronRequest, supabaseRequest, uploadSnapshot } from '../_lib/supabase.js'
 
@@ -162,6 +163,8 @@ export async function persistPlan(symbol: string, plan: TradePlan, analyses: Tre
   if (!confirmationCandle) return false
   const id = randomUUID()
   const snapshotPath = `${id}.svg`
+  const signalStrength = calculateSignalStrength(plan, analyses)
+  const scoredPlan = { ...plan, signalStrength }
   const fingerprint = `${symbol}:${plan.setupType}:${plan.stop.side}:${plan.signalKey ?? confirmationCandle.time}`
   const detectedAt = new Date(confirmationCandle.time * 1000).toISOString()
   const payload = {
@@ -185,7 +188,7 @@ export async function persistPlan(symbol: string, plan: TradePlan, analyses: Tre
     tp3_price: plan.takeProfits[2]?.price ?? null,
     last_price: confirmationCandle.close,
     trend_snapshot: analyses,
-    plan_snapshot: plan,
+    plan_snapshot: scoredPlan,
     candles_snapshot: entryCandles.slice(-100),
     // Сигнал важнее картинки: сбой Storage не должен делать валидный сетап невидимым.
     snapshot_path: null,
@@ -213,7 +216,7 @@ export async function persistPlan(symbol: string, plan: TradePlan, analyses: Tre
     await logScannerError(runId, 'persistence', error, symbol, { operation: 'snapshot-upload', signalId: id })
   }
   try {
-    await createEvent(id, 'detected', confirmationCandle, { trend: getOverallTrend(analyses), setupType: plan.setupType, entry: plan.stop.entry, stop: plan.stop.price })
+    await createEvent(id, 'detected', confirmationCandle, { trend: getOverallTrend(analyses), setupType: plan.setupType, strength: signalStrength.score, entry: plan.stop.entry, stop: plan.stop.price })
   } catch (error) {
     await logScannerError(runId, 'persistence', error, symbol, { operation: 'event-create', signalId: id })
   }
