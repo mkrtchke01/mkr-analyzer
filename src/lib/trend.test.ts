@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, hasEnoughBreakoutLevelTouches, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateAtr, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, getOverallTrend, getTrendIndicator, hasEnoughBreakoutLevelTouches, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -391,6 +391,20 @@ describe('trend analysis', () => {
 
     expect(plan).toMatchObject({ setupType: 'bottom-reversal', stop: { side: 'long' } })
     expect(plan!.setupNote).toContain('5 свечей')
+  })
+
+  it('accepts a shallow price extension when the RSI divergence is clear', () => {
+    const hourlyCandles = makeFastHourlyBullishDivergence()
+    hourlyCandles[26] = { ...hourlyCandles[26], low: 93.2 }
+    const extension = hourlyCandles[21].low - hourlyCandles[26].low
+
+    expect(extension).toBeGreaterThan(calculateAtr(hourlyCandles) * 0.05)
+    expect(extension).toBeLessThan(calculateAtr(hourlyCandles) * 0.25)
+    expect(calculateDivergenceReversalPlan({
+      hourlyCandles,
+      fifteenMinuteCandles: makeFifteenMinuteBullishReversal(),
+      fiveMinuteCandles: makeFiveMinuteBullishReclaim(),
+    })).toMatchObject({ setupType: 'bottom-reversal', stop: { side: 'long' } })
   })
 
   it('accepts a second 5m candle below the first close when it holds its own open', () => {

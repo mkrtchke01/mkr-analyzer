@@ -697,8 +697,8 @@ function findHourlyRsiDivergence(candles: Candle[]): HourlyRsiDivergence | undef
         const firstRsi = rsiAtPivot(candles, rsiByTime, firstIndex, kind)
         if (firstRsi === undefined) continue
         const hasDivergence = side === 'long'
-          ? candles[secondIndex].low < candles[firstIndex].low - atr * 0.25 && secondRsi > firstRsi + 3
-          : candles[secondIndex].high > candles[firstIndex].high + atr * 0.25 && secondRsi < firstRsi - 3
+          ? candles[secondIndex].low < candles[firstIndex].low - atr * 0.05 && secondRsi > firstRsi + 3
+          : candles[secondIndex].high > candles[firstIndex].high + atr * 0.05 && secondRsi < firstRsi - 3
         if (hasDivergence) return { side, firstIndex, secondIndex, secondPrice: side === 'long' ? candles[secondIndex].low : candles[secondIndex].high }
       }
     }
