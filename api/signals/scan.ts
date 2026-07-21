@@ -57,10 +57,6 @@ async function patchSignal(id: string, values: Record<string, unknown>) {
   })
 }
 
-async function deleteSignal(id: string) {
-  await supabaseRequest(`/rest/v1/mkr_signals?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' })
-}
-
 async function monitorSignal(signal: StoredSignal) {
   const candles = closedCandles(await getCandles(signal.symbol, '5m', 200))
   const signalState: ManagedSignal = {
@@ -106,7 +102,7 @@ async function monitorSignal(signal: StoredSignal) {
   }
 }
 
-async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnalysis[], entryCandles: Candle[]) {
+export async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnalysis[], entryCandles: Candle[]) {
   if (!plan.stop.price) return false
 
   const confirmationCandle = entryCandles.at(-1)
@@ -138,7 +134,8 @@ async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnaly
     trend_snapshot: analyses,
     plan_snapshot: plan,
     candles_snapshot: entryCandles.slice(-100),
-    snapshot_path: snapshotPath,
+    // Сигнал важнее картинки: сбой Storage не должен делать валидный сетап невидимым.
+    snapshot_path: null,
   }
   const created = await supabaseRequest<Array<{ id: string }>>('/rest/v1/mkr_signals?on_conflict=fingerprint', {
     method: 'POST',
@@ -147,14 +144,18 @@ async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnaly
   })
   if (!created.length) return false
 
-  const snapshot = createSignalSnapshot(symbol, entryCandles, plan, detectedAt)
   try {
+    const snapshot = createSignalSnapshot(symbol, entryCandles, plan, detectedAt)
     await uploadSnapshot(snapshotPath, snapshot)
+    await patchSignal(id, { snapshot_path: snapshotPath })
   } catch {
-    await deleteSignal(id)
-    return false
+    console.error(`Signal snapshot upload failed for ${symbol}; keeping the signal without a snapshot`)
   }
-  await createEvent(id, 'detected', confirmationCandle, { trend: getOverallTrend(analyses), setupType: plan.setupType, entry: plan.stop.entry, stop: plan.stop.price })
+  try {
+    await createEvent(id, 'detected', confirmationCandle, { trend: getOverallTrend(analyses), setupType: plan.setupType, entry: plan.stop.entry, stop: plan.stop.price })
+  } catch {
+    console.error(`Signal event creation failed for ${symbol}; keeping the signal`)
+  }
   return true
 }
 
