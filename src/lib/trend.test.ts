@@ -237,9 +237,9 @@ const analysis = (timeframe: TrendAnalysis['timeframe'], direction: TrendAnalysi
 })
 
 describe('trend analysis', () => {
-  it('uses the scanner name for both directions of RSI divergence', () => {
-    expect(getScannerStrategy('bottom-reversal')).toMatchObject({ shortName: 'DV', name: 'RSI-дивергенция' })
-    expect(getScannerStrategy('top-reversal')).toMatchObject({ shortName: 'DV', name: 'RSI-дивергенция' })
+  it('exposes only the trend-reclaim scanner strategy', () => {
+    expect(getScannerStrategy('trend-reclaim')).toMatchObject({ shortName: 'TR', name: 'Возврат к тренду' })
+    expect(getScannerStrategy('bottom-reversal')).toBeUndefined()
   })
 
   it('calculates an EMA after the requested warm-up period', () => {

@@ -11,15 +11,12 @@ import { isAuthorizedCronRequest, supabaseRequest, uploadSnapshot } from '../_li
 const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
 const MAX_CONCURRENCY = 5
 const MINIMUM_SIGNAL_STRENGTH = 7
-const BREAKOUT_RETEST_RULE_VERSION = 3
-const LEVEL_BREAKOUT_RULE_VERSION = 2
-const FALSE_BREAKOUT_RULE_VERSION = 2
 const TREND_RECLAIM_RULE_VERSION = 2
 
 type StoredSignal = {
   id: string
   symbol: string
-  setup_type: 'trend-reclaim' | 'level-breakout' | 'false-breakout' | 'bottom-reversal' | 'top-reversal' | 'breakout-retest' | 'consensus'
+  setup_type: 'trend-reclaim'
   side: 'long' | 'short'
   status: 'active' | 'tp1' | 'tp2'
   entry_price: string
@@ -33,7 +30,7 @@ type StoredSignal = {
   detected_candle_time: number
   last_checked_candle_time: number
   expires_at: string
-  plan_snapshot?: { breakoutRetestRuleVersion?: number, levelBreakoutRuleVersion?: number, falseBreakoutRuleVersion?: number, trendReclaimRuleVersion?: number } | null
+  plan_snapshot?: { trendReclaimRuleVersion?: number } | null
 }
 
 type ScannerRun = { id: string }
@@ -41,25 +38,12 @@ type ScanMarketResult = { plansFound: number, created: number }
 type ScannerErrorPhase = 'monitor' | 'market' | 'persistence' | 'run'
 type ScannerFunding = { availableBalance: number, equity: number, openPositions: number }
 
-const SETUP_PRIORITY: Record<SetupType, number> = {
-  'breakout-retest': 6,
-  'level-breakout': 5,
-  'false-breakout': 4,
-  'trend-reclaim': 3,
-  'bottom-reversal': 2,
-  'top-reversal': 2,
-  consensus: 1,
-}
-
 export function selectStrongestPlan(plans: TradePlan[], analyses: TrendAnalysis[] = []): TradePlan | undefined {
   return plans.reduce<TradePlan | undefined>((strongest, candidate) => {
     if (!strongest) return candidate
     const strongestStrength = calculateSignalStrength(strongest, analyses).score
     const candidateStrength = calculateSignalStrength(candidate, analyses).score
     if (candidateStrength !== strongestStrength) return candidateStrength > strongestStrength ? candidate : strongest
-    const strongestPriority = SETUP_PRIORITY[strongest.setupType]
-    const candidatePriority = SETUP_PRIORITY[candidate.setupType]
-    if (candidatePriority !== strongestPriority) return candidatePriority > strongestPriority ? candidate : strongest
     const strongestTarget = Math.max(...strongest.takeProfits.map((target) => target.riskMultiple))
     const candidateTarget = Math.max(...candidate.takeProfits.map((target) => target.riskMultiple))
     return candidateTarget > strongestTarget ? candidate : strongest
@@ -144,11 +128,7 @@ async function patchSignal(id: string, values: Record<string, unknown>) {
 }
 
 export function requiresSetupRuleRevalidation(signal: Pick<StoredSignal, 'setup_type' | 'plan_snapshot'>) {
-  if (signal.setup_type === 'breakout-retest') return signal.plan_snapshot?.breakoutRetestRuleVersion !== BREAKOUT_RETEST_RULE_VERSION
-  if (signal.setup_type === 'level-breakout') return signal.plan_snapshot?.levelBreakoutRuleVersion !== LEVEL_BREAKOUT_RULE_VERSION
-  if (signal.setup_type === 'false-breakout') return signal.plan_snapshot?.falseBreakoutRuleVersion !== FALSE_BREAKOUT_RULE_VERSION
-  if (signal.setup_type === 'trend-reclaim') return signal.plan_snapshot?.trendReclaimRuleVersion !== TREND_RECLAIM_RULE_VERSION
-  return false
+  return signal.plan_snapshot?.trendReclaimRuleVersion !== TREND_RECLAIM_RULE_VERSION
 }
 
 async function monitorSignal(signal: StoredSignal) {
@@ -209,6 +189,7 @@ async function monitorSignal(signal: StoredSignal) {
 }
 
 export async function persistPlan(symbol: string, plan: TradePlan, analyses: TrendAnalysis[], entryCandles: Candle[], runId?: string, funding?: ScannerFunding) {
+  if (plan.setupType !== 'trend-reclaim') return false
   if (!plan.stop.price) return false
 
   const confirmationCandle = entryCandles.at(-1)
@@ -222,10 +203,7 @@ export async function persistPlan(symbol: string, plan: TradePlan, analyses: Tre
   if (!positionSizing) return false
   const scoredPlan = {
     ...plan,
-    ...(plan.setupType === 'breakout-retest' ? { breakoutRetestRuleVersion: BREAKOUT_RETEST_RULE_VERSION } : {}),
-    ...(plan.setupType === 'level-breakout' ? { levelBreakoutRuleVersion: LEVEL_BREAKOUT_RULE_VERSION } : {}),
-    ...(plan.setupType === 'false-breakout' ? { falseBreakoutRuleVersion: FALSE_BREAKOUT_RULE_VERSION } : {}),
-    ...(plan.setupType === 'trend-reclaim' ? { trendReclaimRuleVersion: TREND_RECLAIM_RULE_VERSION } : {}),
+    trendReclaimRuleVersion: TREND_RECLAIM_RULE_VERSION,
     signalStrength,
     positionSizing,
   }
@@ -302,10 +280,6 @@ async function scanMarket(symbol: string, openSymbols: ReadonlySet<string>, fund
     oneHour: analyses[1],
     fifteenMinute: analyses[2],
     hourlyCandles: confirmed[1],
-    // The live 1h candle can form the second divergence pivot; entry remains based on closed 5m candles.
-    hourlyDivergenceCandles: multiTimeframeCandles[1],
-    fifteenMinuteCandles: confirmed[2],
-    fiveMinuteCandles: entryCandles,
   })
   const strongestPlan = selectStrongestPlan(plans, analyses)
   if (!strongestPlan) return { plansFound: 0, created: 0 }

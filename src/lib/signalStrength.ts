@@ -8,19 +8,7 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function patternScore(plan: TradePlan) {
-  switch (plan.setupType) {
-    case 'breakout-retest':
-    case 'bottom-reversal':
-    case 'top-reversal':
-      return 1
-    case 'false-breakout':
-    case 'level-breakout':
-      return 0.8
-    case 'trend-reclaim':
-      return 0.7
-    default:
-      return 0.5
-  }
+  return plan.setupType === 'trend-reclaim' ? 0.7 : 0
 }
 
 function rewardScore(plan: TradePlan) {

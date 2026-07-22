@@ -15,11 +15,7 @@ export type ScannerStrategy = {
 }
 
 export const SCANNER_STRATEGIES: readonly ScannerStrategy[] = [
-  { id: 'breakout-retest', shortName: 'BR', name: 'Пробой + ретест', setupTypes: ['breakout-retest'] },
-  { id: 'level-breakout', shortName: 'LB', name: 'Пробой уровня', setupTypes: ['level-breakout'] },
-  { id: 'false-breakout', shortName: 'FB', name: 'Ложный пробой', setupTypes: ['false-breakout'] },
   { id: 'trend-reclaim', shortName: 'TR', name: 'Возврат к тренду', setupTypes: ['trend-reclaim'] },
-  { id: 'divergence', shortName: 'DV', name: 'RSI-дивергенция', setupTypes: ['bottom-reversal', 'top-reversal'] },
 ]
 
 export function getScannerStrategy(setupType: SetupType): ScannerStrategy | undefined {
@@ -27,14 +23,14 @@ export function getScannerStrategy(setupType: SetupType): ScannerStrategy | unde
 }
 
 export const SETUP_META: Record<SetupType, { shortName: string; name: string }> = {
-  'trend-reclaim': SCANNER_STRATEGIES[3],
-  'level-breakout': SCANNER_STRATEGIES[1],
-  'false-breakout': SCANNER_STRATEGIES[2],
+  'trend-reclaim': SCANNER_STRATEGIES[0],
+  'level-breakout': { shortName: 'LB', name: 'Пробой уровня' },
+  'false-breakout': { shortName: 'FB', name: 'Ложный пробой' },
   // Направления хранятся разными типами для логики и истории, но для пользователя
   // это одна стратегия: вход после подтверждённой RSI-дивергенции.
-  'bottom-reversal': SCANNER_STRATEGIES[4],
-  'top-reversal': SCANNER_STRATEGIES[4],
-  'breakout-retest': SCANNER_STRATEGIES[0],
+  'bottom-reversal': { shortName: 'DV', name: 'RSI-дивергенция' },
+  'top-reversal': { shortName: 'DV', name: 'RSI-дивергенция' },
+  'breakout-retest': { shortName: 'BR', name: 'Пробой + ретест' },
   // Оставляем метаданные только для уже сохранённых исторических сигналов CS.
   consensus: { shortName: 'CS', name: 'Согласованный тренд' },
 }
@@ -1082,15 +1078,9 @@ export function calculateBreakoutRetestPlan(candles: Candle[], trend: OverallTre
   return null
 }
 
-export type TradePlansContext = TrendReclaimContext & Partial<DivergenceReversalContext>
+export type TradePlansContext = TrendReclaimContext
 
-export function calculateTradePlans(candles: Candle[], trend: OverallTrend, context?: TradePlansContext): TradePlan[] {
-  return [
-    context ? calculateTrendReclaimPlan(candles, context) : null,
-    calculateLevelBreakoutPlan(candles, trend, context),
-    calculateBreakoutRetestPlan(candles, trend, context),
-    calculateFalseBreakoutPlan(candles, 'long', context),
-    calculateFalseBreakoutPlan(candles, 'short', context),
-    context?.fifteenMinuteCandles && context.fiveMinuteCandles ? calculateDivergenceReversalPlan(context as DivergenceReversalContext) : null,
-  ].filter((plan): plan is TradePlan => Boolean(plan))
+export function calculateTradePlans(candles: Candle[], _trend: OverallTrend, context?: TradePlansContext): TradePlan[] {
+  const plan = context ? calculateTrendReclaimPlan(candles, context) : null
+  return plan ? [plan] : []
 }

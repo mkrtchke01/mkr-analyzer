@@ -3,8 +3,8 @@ import { calculateSignalStrength } from './signalStrength'
 import type { TradePlan, TrendAnalysis } from './trend'
 
 const plan: TradePlan = {
-  setupType: 'breakout-retest',
-  setupName: 'Пробой + ретест',
+  setupType: 'trend-reclaim',
+  setupName: 'Возврат к тренду',
   setupNote: 'Тест',
   stop: { side: 'long', entry: 100, price: 98, distancePercent: 2, distanceAtr: 0.8, reason: 'Тест' },
   takeProfits: [{ id: 'TP1', price: 106, share: 100, riskMultiple: 6 }],
@@ -13,7 +13,7 @@ const plan: TradePlan = {
 const analysis = (timeframe: TrendAnalysis['timeframe'], direction: TrendAnalysis['direction'], strength: number): TrendAnalysis => ({ timeframe, direction, strength, adx: 30, atr: 1, volumeRatio: 1.2, reasons: [] })
 
 describe('signal strength', () => {
-  it('awards a top score to a high-R/R setup aligned across the context timeframes', () => {
+  it('scores a high-R/R trend reclaim aligned across the context timeframes', () => {
     expect(calculateSignalStrength(plan, [analysis('4h', 'bullish', 90), analysis('1h', 'bullish', 90), analysis('15m', 'bullish', 90)]).score).toBe(10)
   })
 

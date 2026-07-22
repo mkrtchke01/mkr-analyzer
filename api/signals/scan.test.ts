@@ -20,10 +20,10 @@ vi.mock('../../src/lib/signalSnapshot.js', () => ({
 const { persistPlan, requiresSetupRuleRevalidation, selectStrongestPlan } = await import('./scan')
 
 const plan: TradePlan = {
-  setupType: 'breakout-retest',
-  setupName: 'Пробой + ретест',
+  setupType: 'trend-reclaim',
+  setupName: 'Возврат к тренду',
   setupNote: 'Тест',
-  signalKey: 'level:breakout',
+  signalKey: 'pullback:reclaim',
   stop: { side: 'long', entry: 100, price: 98, distanceAtr: 0.8 },
   takeProfits: [{ id: 'TP1', price: 112, share: 100, riskMultiple: 6 }],
 }
@@ -44,7 +44,7 @@ describe('signal persistence', () => {
     await expect(persistPlan('AXTIUSDT', plan, strongAnalyses, [candle])).resolves.toBe(true)
 
     const insertPayload = JSON.parse(mocks.supabaseRequest.mock.calls[0][1].body)
-    expect(insertPayload).toMatchObject({ symbol: 'AXTIUSDT', snapshot_path: null, setup_type: 'breakout-retest', plan_snapshot: { breakoutRetestRuleVersion: 3, signalStrength: { score: 10 }, positionSizing: { riskAmount: 2 } } })
+    expect(insertPayload).toMatchObject({ symbol: 'AXTIUSDT', snapshot_path: null, setup_type: 'trend-reclaim', plan_snapshot: { trendReclaimRuleVersion: 2, signalStrength: { score: 10 }, positionSizing: { riskAmount: 2 } } })
     expect(mocks.supabaseRequest.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false)
     expect(mocks.uploadSnapshot).toHaveBeenCalledOnce()
   })
@@ -57,12 +57,16 @@ describe('signal persistence', () => {
     expect(mocks.uploadSnapshot).not.toHaveBeenCalled()
   })
 
-  it('keeps the strongest setup for a symbol', () => {
-    const reclaim = { ...plan, setupType: 'trend-reclaim' as const, takeProfits: [{ id: 'TP1' as const, price: 104, share: 100, riskMultiple: 4 }] }
-    const reversal = { ...plan, setupType: 'top-reversal' as const, stop: { ...plan.stop, side: 'short' as const }, takeProfits: [{ id: 'TP1' as const, price: 88, share: 100, riskMultiple: 8 }] }
-    const bearishAnalyses = strongAnalyses.map((analysis) => ({ ...analysis, direction: 'bearish' as const }))
+  it('does not persist a strategy other than trend reclaim', async () => {
+    await expect(persistPlan('AXTIUSDT', { ...plan, setupType: 'breakout-retest', setupName: 'Пробой + ретест' }, strongAnalyses, [candle])).resolves.toBe(false)
 
-    expect(selectStrongestPlan([reclaim, reversal, plan], bearishAnalyses)).toBe(reversal)
+    expect(mocks.supabaseRequest).not.toHaveBeenCalled()
+  })
+
+  it('keeps the strongest trend-reclaim setup for a symbol', () => {
+    const lowerTarget = { ...plan, takeProfits: [{ id: 'TP1' as const, price: 104, share: 100, riskMultiple: 4 }] }
+
+    expect(selectStrongestPlan([lowerTarget, plan], strongAnalyses)).toBe(plan)
   })
 
   it('does not persist a setup below the strength threshold', async () => {
@@ -70,14 +74,8 @@ describe('signal persistence', () => {
     expect(mocks.supabaseRequest).not.toHaveBeenCalled()
   })
 
-  it('expires strategy snapshots created before their stricter entry rules', () => {
-    expect(requiresSetupRuleRevalidation({ setup_type: 'breakout-retest', plan_snapshot: null })).toBe(true)
-    expect(requiresSetupRuleRevalidation({ setup_type: 'breakout-retest', plan_snapshot: { breakoutRetestRuleVersion: 3 } })).toBe(false)
+  it('expires trend-reclaim snapshots created before its entry rules', () => {
     expect(requiresSetupRuleRevalidation({ setup_type: 'trend-reclaim', plan_snapshot: null })).toBe(true)
     expect(requiresSetupRuleRevalidation({ setup_type: 'trend-reclaim', plan_snapshot: { trendReclaimRuleVersion: 2 } })).toBe(false)
-    expect(requiresSetupRuleRevalidation({ setup_type: 'level-breakout', plan_snapshot: null })).toBe(true)
-    expect(requiresSetupRuleRevalidation({ setup_type: 'level-breakout', plan_snapshot: { levelBreakoutRuleVersion: 2 } })).toBe(false)
-    expect(requiresSetupRuleRevalidation({ setup_type: 'false-breakout', plan_snapshot: null })).toBe(true)
-    expect(requiresSetupRuleRevalidation({ setup_type: 'false-breakout', plan_snapshot: { falseBreakoutRuleVersion: 2 } })).toBe(false)
   })
 })
