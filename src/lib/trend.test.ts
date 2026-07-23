@@ -283,12 +283,13 @@ describe('trend analysis', () => {
     expect(getOverallTrend([...permissiveLong.slice(0, 3), { ...permissiveLong[3], direction: 'bearish', strength: 65 }])).toBe('flat')
   })
 
-  it('colors a market by the dominant weighted direction even without full confirmation', () => {
+  it('uses only the 4h and 1h average for the screener trend', () => {
     const mixed = [analysis('4h', 'bullish', 70), analysis('1h', 'bearish', 30), analysis('15m', 'bullish', 50), analysis('5m', 'bullish', 40)]
 
     expect(getOverallTrend(mixed)).toBe('flat')
-    expect(getTrendIndicator(mixed)).toEqual({ direction: 'bullish', strength: 51 })
-    expect(getTrendIndicator(mixed.map((item) => ({ ...item, direction: 'flat' as const })))).toEqual({ direction: 'flat', strength: 51 })
+    expect(getTrendIndicator(mixed)).toEqual({ direction: 'bullish', strength: 50 })
+    expect(getTrendIndicator([...mixed.slice(0, 2), analysis('15m', 'bearish', 100), analysis('5m', 'bearish', 100)])).toEqual({ direction: 'bullish', strength: 50 })
+    expect(getTrendIndicator(mixed.map((item) => ({ ...item, direction: 'flat' as const })))).toEqual({ direction: 'flat', strength: 50 })
   })
 
   it('uses the 15m direction as pullback and the matching 5m as entry strength', () => {

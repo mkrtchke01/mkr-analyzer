@@ -295,11 +295,12 @@ export function getOverallTrend(analyses: TrendAnalysis[]): OverallTrend {
 }
 
 export function getTrendIndicator(analyses: TrendAnalysis[]): TrendIndicator {
-  const weights: Partial<Record<TrendAnalysis['timeframe'], number>> = { '4h': 0.4, '1h': 0.3, '15m': 0.2, '5m': 0.1 }
-  const strength = Math.round(analyses.reduce((sum, analysis) => sum + analysis.strength * (weights[analysis.timeframe] ?? 0), 0))
-  const directionScore = analyses.reduce((sum, analysis) => {
+  const contextAnalyses = analyses.filter((analysis) => analysis.timeframe === '4h' || analysis.timeframe === '1h')
+  if (!contextAnalyses.length) return { direction: 'flat', strength: 0 }
+  const strength = Math.round(contextAnalyses.reduce((sum, analysis) => sum + analysis.strength, 0) / contextAnalyses.length)
+  const directionScore = contextAnalyses.reduce((sum, analysis) => {
     const sign = analysis.direction === 'bullish' ? 1 : analysis.direction === 'bearish' ? -1 : 0
-    return sum + sign * analysis.strength * (weights[analysis.timeframe] ?? 0)
+    return sum + sign * analysis.strength
   }, 0)
 
   if (directionScore === 0) return { direction: 'flat', strength }
