@@ -75,7 +75,7 @@ class RiskRewardRenderer implements ISeriesPrimitivePaneRenderer {
           context.stroke()
         })
         if (box.id === this.selectedId) {
-          ;[[box.startX, box.entryY], [box.endX, box.takeProfitY]].forEach(([x, y]) => {
+          ;[[box.startX, box.entryY], [box.endX, box.takeProfitY], [box.startX, box.stopLossY]].forEach(([x, y]) => {
             context.beginPath()
             context.fillStyle = '#0c1019'
             context.strokeStyle = '#b8ff6c'
