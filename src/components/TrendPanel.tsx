@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { marketInfoText, type MarketInfoSignal } from '../lib/marketInfo'
-import { getOverallTrend, type OverallTrend, type TradePlan, type TrendAnalysis, type TrendDirection } from '../lib/trend'
+import { getOverallTrend, getTrendIndicator, type OverallTrend, type TradePlan, type TrendAnalysis, type TrendDirection } from '../lib/trend'
 import { formatPrice } from '../lib/bybit'
 import { calculatePositionSizing } from '../lib/positionSizing'
 
@@ -36,6 +36,10 @@ const overallText: Record<OverallTrend, string> = {
   'strong-long': 'LONG / КОНТЕКСТ',
   'strong-short': 'SHORT / КОНТЕКСТ',
   flat: 'ФЛЕТ / НЕТ СЕТАПА',
+}
+
+export function overallTrendLabel(overall: OverallTrend, strength: number) {
+  return `${overallText[overall]} · ${strength}/100`
 }
 
 function formatQuantity(value: number) {
@@ -123,6 +127,7 @@ export function TradePlans({ tradePlans, availableBalance, accountEquity }: Trad
 
 export default function TrendPanel({ analyses, loading, error, marketInfo, onShowMarketInfo }: TrendPanelProps) {
   const overall = getOverallTrend(analyses)
+  const trendIndicator = getTrendIndicator(analyses)
 
   return (
     <section className="trend-panel" aria-label="Анализ тренда">
@@ -148,7 +153,7 @@ export default function TrendPanel({ analyses, loading, error, marketInfo, onSho
         </div>
         <footer className={`overall-trend ${overall}`}>
           <span>ИТОГ</span>
-          <strong>{overallText[overall]}</strong>
+          <strong>{overallTrendLabel(overall, trendIndicator.strength)}</strong>
           <small>{overall === 'flat' ? '1h не подтвердил направление или есть сильный контртренд' : '4h не против, 1h подтверждает; 15m и 5m без сильного контртренда'}</small>
         </footer>
         <section className="market-info" aria-label="Info">
