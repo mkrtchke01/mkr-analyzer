@@ -3,6 +3,9 @@
   "functions": {
     "api/signals/scan.ts": {
       "regions": ["fra1"]
+    },
+    "api/market/kline.ts": {
+      "regions": ["fra1"]
     }
   }
 }
