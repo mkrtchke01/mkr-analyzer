@@ -119,13 +119,32 @@ export function entryLevelFromTradePlan(tradePlan: TradePlan, timeframe: Timefra
   }
 }
 
+export function liquidityZoneToChartLevel(zone: LiquidityZone, time: number): ManualChartLevel {
+  const color = zone.source === 'confluence'
+    ? '#b8ff6c'
+    : zone.source === 'orderbook'
+      ? (zone.side === 'bid' ? '#31d28c' : '#ff667a')
+      : (zone.side === 'long' ? '#ff9aab' : '#71cfff')
+  return {
+    id: `liquidity-${zone.id}`,
+    price: zone.price,
+    time,
+    endPrice: zone.price,
+    endTime: time,
+    color,
+    label: zone.label,
+    lineWidth: zone.source === 'confluence' ? 3 : 2,
+    dashed: zone.source !== 'confluence',
+    extendRight: true,
+  }
+}
+
 export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrecision, tradePlans, manualLevels, fibonacciDrawings, rsiDivergences, riskRewards, showLiquidations, showOrderBook, focusTime, drawingMode, drawingAnchor, onDrawingPoint, onUpdateRiskReward, onUpdateRiskRewardEndpoint, onUpdateManualLevel, onUpdateFibonacci, onMoveManualLevel, onMoveFibonacci, onMoveRiskReward, onDeleteDrawing, onStatusChange, onPriceChange }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const candlesRef = useRef<Candle[]>([])
   const tradeLinesRef = useRef<IPriceLine[]>([])
-  const liquidityLinesRef = useRef<IPriceLine[]>([])
   const currentPriceRef = useRef(0)
   const liquidationsRef = useRef<LiquidationEvent[]>([])
   const orderBookRef = useRef<OrderBook>({ bids: new Map(), asks: new Map() })
@@ -278,7 +297,9 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       ? fibonacciLevels({ id: 'fibonacci-preview', start: drawingAnchor, end: drawingPreview })
       : []
     const entries = tradePlans.map((tradePlan) => entryLevelFromTradePlan(tradePlan, timeframe)).filter((level): level is ManualChartLevel => Boolean(level))
-    levelPrimitiveRef.current?.setLevels([...manualLevels, ...fibonacciDrawings.flatMap(fibonacciLevels), ...entries, ...preview, ...fibonacciPreview])
+    const latestCandleTime = candlesRef.current.at(-1)?.time ?? 0
+    const liquidityLevels = latestCandleTime ? liquidityZones.map((zone) => liquidityZoneToChartLevel(zone, latestCandleTime)) : []
+    levelPrimitiveRef.current?.setLevels([...manualLevels, ...fibonacciDrawings.flatMap(fibonacciLevels), ...entries, ...preview, ...fibonacciPreview, ...liquidityLevels])
     const selectedLevel = selectedDrawing?.kind === 'level' ? manualLevels.find((level) => level.id === selectedDrawing.id) : undefined
     const selectedFibonacci = selectedDrawing?.kind === 'fibonacci' ? fibonacciDrawings.find((drawing) => drawing.id === selectedDrawing.id) : undefined
     const selection: ChartLevelSelection | null = selectedLevel
@@ -287,7 +308,7 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
         ? { ...selectedFibonacci, color: '#b8ff6c', showGuide: true }
         : null
     levelPrimitiveRef.current?.setSelection(selection)
-  }, [drawingAnchor, drawingMode, drawingPreview, fibonacciDrawings, manualLevels, selectedDrawing, timeframe, tradePlans])
+  }, [candleCount, drawingAnchor, drawingMode, drawingPreview, fibonacciDrawings, liquidityZones, manualLevels, selectedDrawing, timeframe, tradePlans])
 
   useEffect(() => {
     const chart = chartRef.current
@@ -597,24 +618,6 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       socket?.close()
     }
   }, [symbol, timeframe, focusTime, onPriceChange, onStatusChange])
-
-  useEffect(() => {
-    const series = seriesRef.current
-    if (!series) return
-    liquidityLinesRef.current.forEach((line) => series.removePriceLine(line))
-    liquidityLinesRef.current = liquidityZones.map((zone) => series.createPriceLine({
-      price: zone.price,
-      color: zone.source === 'confluence' ? '#b8ff6c' : zone.source === 'orderbook' ? (zone.side === 'bid' ? '#31d28c' : '#ff667a') : (zone.side === 'long' ? '#ff9aab' : '#71cfff'),
-      lineWidth: zone.source === 'confluence' ? 3 : 2,
-      lineStyle: zone.source === 'orderbook' ? LineStyle.Dotted : LineStyle.Dashed,
-      axisLabelVisible: false,
-      title: zone.label,
-    }))
-    return () => {
-      liquidityLinesRef.current.forEach((line) => series.removePriceLine(line))
-      liquidityLinesRef.current = []
-    }
-  }, [liquidityZones])
 
   useEffect(() => {
     if (!showLiquidations && !showOrderBook) {

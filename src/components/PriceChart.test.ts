@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CrosshairMode, type Time } from 'lightweight-charts'
-import { enableInitialVerticalPanning, entryLevelFromTradePlan, fitChartHistory, focusChartOnTime, freeCrosshairOptions, manualLevelFromChartPoint, resetPriceScaleForNewCandles } from './PriceChart'
+import { enableInitialVerticalPanning, entryLevelFromTradePlan, fitChartHistory, focusChartOnTime, freeCrosshairOptions, liquidityZoneToChartLevel, manualLevelFromChartPoint, resetPriceScaleForNewCandles } from './PriceChart'
 
 describe('PriceChart options', () => {
   it('allows vertical panning as soon as the chart opens', () => {
@@ -48,6 +48,21 @@ describe('PriceChart options', () => {
       extendRight: true,
       lineWidth: 1,
       dashed: true,
+    }))
+  })
+
+  it('renders order-book labels directly on the chart instead of relying on a price-scale label', () => {
+    expect(liquidityZoneToChartLevel({
+      id: 'book-bid-100', price: 100, notional: 40_000, count: 2, source: 'orderbook', side: 'bid', label: 'BID $40K',
+    }, 1_720_000_000)).toEqual(expect.objectContaining({
+      id: 'liquidity-book-bid-100',
+      time: 1_720_000_000,
+      endTime: 1_720_000_000,
+      price: 100,
+      endPrice: 100,
+      label: 'BID $40K',
+      color: '#31d28c',
+      extendRight: true,
     }))
   })
 
