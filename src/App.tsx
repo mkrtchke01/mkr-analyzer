@@ -76,6 +76,8 @@ export default function App() {
   const [chartFocusTime, setChartFocusTime] = useState<number | null>(null)
   const [entryReadinessBySymbol, setEntryReadinessBySymbol] = useState<Record<string, EntryReadiness>>({})
   const [screenerWidth, setScreenerWidth] = useState<number | null>(null)
+  const [showLiquidations, setShowLiquidations] = useState(false)
+  const [showOrderBook, setShowOrderBook] = useState(false)
 
   const resizeScreener = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (window.innerWidth <= 800) return
@@ -508,6 +510,12 @@ export default function App() {
               <button className={`chart-level-toggle ${drawingMode === 'fibonacci' ? 'active' : ''}`} onClick={() => { setDrawingMode((mode) => mode === 'fibonacci' ? null : 'fibonacci'); setDrawingAnchor(null) }} aria-pressed={drawingMode === 'fibonacci'}>
                 {drawingMode === 'fibonacci' ? (drawingAnchor ? 'Конец Фибо' : 'Начало Фибо') : 'Фибо'}
               </button>
+              <button className={`chart-level-toggle ${showLiquidations ? 'active liquidity-toggle' : 'liquidity-toggle'}`} onClick={() => setShowLiquidations((visible) => !visible)} aria-pressed={showLiquidations} title="Фактические ликвидации Bybit, собранные после включения">
+                LQ
+              </button>
+              <button className={`chart-level-toggle ${showOrderBook ? 'active liquidity-toggle' : 'liquidity-toggle'}`} onClick={() => setShowOrderBook((visible) => !visible)} aria-pressed={showOrderBook} title="Крупные лимитные кластеры из стакана Bybit">
+                Стакан
+              </button>
               {drawingCount > 0 && <button className="chart-level-clear" onClick={clearDrawings}>Очистить {drawingCount}</button>}
               <div className={`connection ${status}`}>
                 <i /> {status === 'live' ? 'Поток данных' : status === 'loading' ? 'Загрузка' : 'Переподключение'}
@@ -515,7 +523,7 @@ export default function App() {
             </div>
           </div>
           <TradePlans tradePlans={fixedTradePlans} availableBalance={accountSummary.balance} accountEquity={accountSummary.equity} />
-          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} priceTickSize={selectedMarket?.tickSize} pricePrecision={selectedMarket?.pricePrecision} tradePlans={fixedTradePlans} manualLevels={manualLevels} fibonacciDrawings={fibonacciDrawings} rsiDivergences={rsiDivergences} riskRewards={riskRewards} focusTime={chartFocusTime} drawingMode={drawingMode} drawingAnchor={drawingAnchor} onDrawingPoint={addDrawingPoint} onUpdateRiskReward={updateRiskReward} onUpdateRiskRewardEndpoint={updateRiskRewardEndpoint} onUpdateManualLevel={updateManualLevel} onUpdateFibonacci={updateFibonacci} onMoveManualLevel={moveManualLevel} onMoveFibonacci={moveFibonacci} onMoveRiskReward={moveRiskReward} onDeleteDrawing={deleteDrawing} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
+          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} priceTickSize={selectedMarket?.tickSize} pricePrecision={selectedMarket?.pricePrecision} tradePlans={fixedTradePlans} manualLevels={manualLevels} fibonacciDrawings={fibonacciDrawings} rsiDivergences={rsiDivergences} riskRewards={riskRewards} showLiquidations={showLiquidations} showOrderBook={showOrderBook} focusTime={chartFocusTime} drawingMode={drawingMode} drawingAnchor={drawingAnchor} onDrawingPoint={addDrawingPoint} onUpdateRiskReward={updateRiskReward} onUpdateRiskRewardEndpoint={updateRiskRewardEndpoint} onUpdateManualLevel={updateManualLevel} onUpdateFibonacci={updateFibonacci} onMoveManualLevel={moveManualLevel} onMoveFibonacci={moveFibonacci} onMoveRiskReward={moveRiskReward} onDeleteDrawing={deleteDrawing} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
           <footer className="chart-footer">
             <span>Свечи · {timeframe}</span>
             <span>Источник: Bybit public market data</span>

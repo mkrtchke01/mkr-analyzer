@@ -10,6 +10,7 @@ import { fibonacciLevels } from './Fibonacci'
 import { MeasurementPrimitive, type ChartMeasurement } from './Measurement'
 import { createRiskRewardBox, RiskRewardPrimitive } from './RiskReward'
 import RsiPanel from './RsiPanel'
+import { aggregateLiquidationZones, aggregateOrderBookZones, applyOrderBookUpdate, LIQUIDATION_WINDOW_MS, liquidityWebSocketTopics, mergeLiquidityConfluences, type LiquidationEvent, type LiquidityZone, type OrderBook } from '../lib/liquidity'
 
 type PriceChartProps = {
   symbol: string
@@ -21,6 +22,8 @@ type PriceChartProps = {
   fibonacciDrawings: FibonacciDrawing[]
   rsiDivergences: Array<DivergenceInfo & { id: string }>
   riskRewards: RiskRewardBox[]
+  showLiquidations: boolean
+  showOrderBook: boolean
   focusTime: number | null
   drawingMode: 'level' | 'risk' | 'fibonacci' | null
   drawingAnchor: { price: number, time: number } | null
@@ -116,12 +119,16 @@ export function entryLevelFromTradePlan(tradePlan: TradePlan, timeframe: Timefra
   }
 }
 
-export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrecision, tradePlans, manualLevels, fibonacciDrawings, rsiDivergences, riskRewards, focusTime, drawingMode, drawingAnchor, onDrawingPoint, onUpdateRiskReward, onUpdateRiskRewardEndpoint, onUpdateManualLevel, onUpdateFibonacci, onMoveManualLevel, onMoveFibonacci, onMoveRiskReward, onDeleteDrawing, onStatusChange, onPriceChange }: PriceChartProps) {
+export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrecision, tradePlans, manualLevels, fibonacciDrawings, rsiDivergences, riskRewards, showLiquidations, showOrderBook, focusTime, drawingMode, drawingAnchor, onDrawingPoint, onUpdateRiskReward, onUpdateRiskRewardEndpoint, onUpdateManualLevel, onUpdateFibonacci, onMoveManualLevel, onMoveFibonacci, onMoveRiskReward, onDeleteDrawing, onStatusChange, onPriceChange }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const candlesRef = useRef<Candle[]>([])
   const tradeLinesRef = useRef<IPriceLine[]>([])
+  const liquidityLinesRef = useRef<IPriceLine[]>([])
+  const currentPriceRef = useRef(0)
+  const liquidationsRef = useRef<LiquidationEvent[]>([])
+  const orderBookRef = useRef<OrderBook>({ bids: new Map(), asks: new Map() })
   const levelPrimitiveRef = useRef<ChartLevelsPrimitive | null>(null)
   const riskRewardPrimitiveRef = useRef<RiskRewardPrimitive | null>(null)
   const measurementPrimitiveRef = useRef<MeasurementPrimitive | null>(null)
@@ -135,6 +142,7 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
   const [rsiAverage, setRsiAverage] = useState<RsiPoint[]>([])
   const [candleCount, setCandleCount] = useState(0)
   const [rsiVisibleRange, setRsiVisibleRange] = useState<{ from: number, to: number } | null>(null)
+  const [liquidityZones, setLiquidityZones] = useState<LiquidityZone[]>([])
 
   useEffect(() => {
     const container = containerRef.current
@@ -527,6 +535,7 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       setRsiAverage(calculateRsiSma(nextRsi))
       setCandleCount(candlesRef.current.length)
       onPriceChange(candle.close)
+      currentPriceRef.current = candle.close
     }
 
     const connect = async () => {
@@ -553,6 +562,7 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
         })
         const latest = candles.at(-1)
         if (latest) onPriceChange(latest.close)
+        if (latest) currentPriceRef.current = latest.close
       } catch {
         if (!disposed) onStatusChange('offline')
       }
@@ -587,6 +597,92 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       socket?.close()
     }
   }, [symbol, timeframe, focusTime, onPriceChange, onStatusChange])
+
+  useEffect(() => {
+    const series = seriesRef.current
+    if (!series) return
+    liquidityLinesRef.current.forEach((line) => series.removePriceLine(line))
+    liquidityLinesRef.current = liquidityZones.map((zone) => series.createPriceLine({
+      price: zone.price,
+      color: zone.source === 'confluence' ? '#b8ff6c' : zone.source === 'orderbook' ? (zone.side === 'bid' ? '#31d28c' : '#ff667a') : (zone.side === 'long' ? '#ff9aab' : '#71cfff'),
+      lineWidth: zone.source === 'confluence' ? 3 : 2,
+      lineStyle: zone.source === 'orderbook' ? LineStyle.Dotted : LineStyle.Dashed,
+      axisLabelVisible: false,
+      title: zone.label,
+    }))
+    return () => {
+      liquidityLinesRef.current.forEach((line) => series.removePriceLine(line))
+      liquidityLinesRef.current = []
+    }
+  }, [liquidityZones])
+
+  useEffect(() => {
+    if (!showLiquidations && !showOrderBook) {
+      setLiquidityZones([])
+      return
+    }
+
+    let socket: WebSocket | undefined
+    let disposed = false
+    let retryId: number | undefined
+    liquidationsRef.current = []
+    orderBookRef.current = { bids: new Map(), asks: new Map() }
+
+    const refreshZones = () => {
+      const currentPrice = currentPriceRef.current
+      if (currentPrice <= 0) return
+      const liquidations = showLiquidations
+        ? aggregateLiquidationZones(liquidationsRef.current, currentPrice, priceTickSize)
+        : []
+      const orderBook = showOrderBook
+        ? aggregateOrderBookZones(orderBookRef.current, currentPrice, priceTickSize)
+        : []
+      setLiquidityZones(mergeLiquidityConfluences(liquidations, orderBook, currentPrice, priceTickSize))
+    }
+
+    const connect = () => {
+      const topics = liquidityWebSocketTopics(symbol, showLiquidations, showOrderBook)
+      if (!topics.length) return
+      socket = new WebSocket(chartWebSocketUrl())
+      socket.onopen = () => socket?.send(JSON.stringify({ op: 'subscribe', args: topics }))
+      socket.onmessage = (message) => {
+        const payload = JSON.parse(message.data) as {
+          topic?: string
+          type?: 'snapshot' | 'delta'
+          data?: { T?: number, p?: string, v?: string, S?: 'Buy' | 'Sell', b?: string[][], a?: string[][] } | Array<{ T?: number, p?: string, v?: string, S?: 'Buy' | 'Sell' }>
+        }
+        if (!payload.topic || !payload.data) return
+        if (payload.topic.startsWith('allLiquidation.')) {
+          const events = (Array.isArray(payload.data) ? payload.data : [payload.data]).flatMap((event) => event.p && event.v && event.S ? [{
+            price: Number(event.p),
+            size: Number(event.v),
+            side: event.S === 'Buy' ? 'long' as const : 'short' as const,
+            timestamp: Number(event.T ?? Date.now()),
+          }] : [])
+          if (events.length) {
+            liquidationsRef.current = [...liquidationsRef.current, ...events]
+              .filter((item) => item.timestamp >= Date.now() - LIQUIDATION_WINDOW_MS)
+            refreshZones()
+          }
+        }
+        if (payload.topic.startsWith('orderbook.') && (payload.type === 'snapshot' || payload.type === 'delta')) {
+          if (Array.isArray(payload.data)) return
+          orderBookRef.current = applyOrderBookUpdate(orderBookRef.current, payload.type, payload.data)
+          refreshZones()
+        }
+      }
+      socket.onclose = () => {
+        if (!disposed) retryId = window.setTimeout(connect, 3_000)
+      }
+    }
+
+    connect()
+    return () => {
+      disposed = true
+      if (retryId) window.clearTimeout(retryId)
+      socket?.close()
+    }
+  }, [priceTickSize, showLiquidations, showOrderBook, symbol])
 
   return <>
     <div className="chart-canvas" ref={containerRef} aria-label={`График ${symbol}`}>
