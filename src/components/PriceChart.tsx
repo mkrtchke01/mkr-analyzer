@@ -4,10 +4,11 @@ import { chartWebSocketUrl, getCandles, klineEventToCandle, timeframeToBybitInte
 import { calculateRsi, calculateRsiSma, type RsiPoint } from '../lib/rsi'
 import type { DivergenceInfo } from '../lib/marketInfo'
 import { SETUP_META, type FibonacciDrawing, type ManualChartLevel, type RiskRewardBox, type TradePlan } from '../lib/trend'
-import { ChartLevelsPrimitive } from './ChartLevels'
+import { ChartLevelsPrimitive, timeToChartCoordinate, type ChartLevelSelection } from './ChartLevels'
+import { distanceToSegment, extrapolateChartTime, isNearPoint } from './DrawingEditor'
 import { fibonacciLevels } from './Fibonacci'
 import { MeasurementPrimitive, type ChartMeasurement } from './Measurement'
-import { createRiskRewardBox, getRiskRewardHandle, RiskRewardPrimitive } from './RiskReward'
+import { createRiskRewardBox, RiskRewardPrimitive } from './RiskReward'
 import RsiPanel from './RsiPanel'
 
 type PriceChartProps = {
@@ -25,9 +26,15 @@ type PriceChartProps = {
   drawingAnchor: { price: number, time: number } | null
   onDrawingPoint: (point: { price: number, time: number }) => void
   onUpdateRiskReward: (id: string, target: 'takeProfit' | 'stopLoss', price: number) => void
+  onUpdateManualLevel: (id: string, endpoint: 'start' | 'end', point: { price: number, time: number }) => void
+  onUpdateFibonacci: (id: string, endpoint: 'start' | 'end', point: { price: number, time: number }) => void
+  onDeleteDrawing: (drawing: DrawingSelection) => void
   onStatusChange: (status: 'loading' | 'live' | 'offline') => void
   onPriceChange: (price: number) => void
 }
+
+type DrawingSelection = { kind: 'level' | 'fibonacci' | 'risk', id: string }
+type DraggingDrawing = DrawingSelection & { endpoint: 'start' | 'end' | 'takeProfit' | 'stopLoss' }
 
 export const freeCrosshairOptions = { mode: CrosshairMode.Normal }
 
@@ -46,7 +53,7 @@ const chartOptions = {
     borderColor: 'rgba(255, 255, 255, 0.08)',
     timeVisible: true,
     secondsVisible: false,
-    rightOffset: 5,
+    rightOffset: 60,
     barSpacing: 2,
     minBarSpacing: 1,
   },
@@ -92,7 +99,7 @@ export function entryLevelFromTradePlan(tradePlan: TradePlan, timeframe: Timefra
   }
 }
 
-export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrecision, tradePlans, manualLevels, fibonacciDrawings, rsiDivergences, riskRewards, focusTime, drawingMode, drawingAnchor, onDrawingPoint, onUpdateRiskReward, onStatusChange, onPriceChange }: PriceChartProps) {
+export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrecision, tradePlans, manualLevels, fibonacciDrawings, rsiDivergences, riskRewards, focusTime, drawingMode, drawingAnchor, onDrawingPoint, onUpdateRiskReward, onUpdateManualLevel, onUpdateFibonacci, onDeleteDrawing, onStatusChange, onPriceChange }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -102,7 +109,10 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
   const riskRewardPrimitiveRef = useRef<RiskRewardPrimitive | null>(null)
   const measurementPrimitiveRef = useRef<MeasurementPrimitive | null>(null)
   const measurementGestureRef = useRef(false)
+  const draggingDrawingRef = useRef<DraggingDrawing | null>(null)
   const [drawingPreview, setDrawingPreview] = useState<{ price: number, time: number } | null>(null)
+  const [selectedDrawing, setSelectedDrawing] = useState<DrawingSelection | null>(null)
+  const [drawingMenuPosition, setDrawingMenuPosition] = useState<{ x: number, y: number } | null>(null)
   const [measurement, setMeasurement] = useState<ChartMeasurement | null>(null)
   const [rsiData, setRsiData] = useState<RsiPoint[]>([])
   const [rsiAverage, setRsiAverage] = useState<RsiPoint[]>([])
@@ -244,7 +254,15 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       : []
     const entries = tradePlans.map((tradePlan) => entryLevelFromTradePlan(tradePlan, timeframe)).filter((level): level is ManualChartLevel => Boolean(level))
     levelPrimitiveRef.current?.setLevels([...manualLevels, ...fibonacciDrawings.flatMap(fibonacciLevels), ...entries, ...preview, ...fibonacciPreview])
-  }, [drawingAnchor, drawingMode, drawingPreview, fibonacciDrawings, manualLevels, timeframe, tradePlans])
+    const selectedLevel = selectedDrawing?.kind === 'level' ? manualLevels.find((level) => level.id === selectedDrawing.id) : undefined
+    const selectedFibonacci = selectedDrawing?.kind === 'fibonacci' ? fibonacciDrawings.find((drawing) => drawing.id === selectedDrawing.id) : undefined
+    const selection: ChartLevelSelection | null = selectedLevel
+      ? { start: { price: selectedLevel.price, time: selectedLevel.time }, end: { price: selectedLevel.endPrice, time: selectedLevel.endTime }, color: selectedLevel.color }
+      : selectedFibonacci
+        ? { ...selectedFibonacci, color: '#b8ff6c', showGuide: true }
+        : null
+    levelPrimitiveRef.current?.setSelection(selection)
+  }, [drawingAnchor, drawingMode, drawingPreview, fibonacciDrawings, manualLevels, selectedDrawing, timeframe, tradePlans])
 
   useEffect(() => {
     const chart = chartRef.current
@@ -349,41 +367,117 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
 
   useEffect(() => {
     const container = containerRef.current
+    const chart = chartRef.current
     const series = seriesRef.current
-    if (!container || !series || !riskRewards.length) return
-    let dragging: { id: string, target: 'takeProfit' | 'stopLoss' } | null = null
-    const getChartY = (event: PointerEvent) => event.clientY - container.getBoundingClientRect().top
+    if (!container || !chart || !series || drawingMode) return
+    const pointFromEvent = (event: PointerEvent) => {
+      const bounds = container.getBoundingClientRect()
+      const x = event.clientX - bounds.left
+      const y = event.clientY - bounds.top
+      const price = series.coordinateToPrice(y)
+      const directTime = chart.timeScale().coordinateToTime(x)
+      const candles = candlesRef.current
+      const latest = candles.at(-1)
+      const previous = candles.at(-2)
+      const time = extrapolateChartTime(
+        directTime === null ? null : Number(directTime),
+        x,
+        latest ? { time: latest.time, x: timeToChartCoordinate(chart, series, latest.time) ?? 0 } : null,
+        previous ? { time: previous.time, x: timeToChartCoordinate(chart, series, previous.time) ?? 0 } : null,
+      )
+      return price === null || time === null ? null : { x, y, price, time }
+    }
+    const endpointForSelection = (selection: DrawingSelection) => {
+      if (selection.kind === 'level') {
+        const level = manualLevels.find((item) => item.id === selection.id)
+        return level ? { start: { price: level.price, time: level.time }, end: { price: level.endPrice, time: level.endTime } } : null
+      }
+      if (selection.kind === 'fibonacci') {
+        const drawing = fibonacciDrawings.find((item) => item.id === selection.id)
+        return drawing ? { start: drawing.start, end: drawing.end } : null
+      }
+      return null
+    }
     const onPointerDown = (event: PointerEvent) => {
-      const handles = riskRewards.flatMap((box) => {
+      if (event.button !== 0 || event.shiftKey) return
+      const point = pointFromEvent(event)
+      if (!point) return
+      draggingDrawingRef.current = null
+      if (selectedDrawing) {
+        const endpoints = endpointForSelection(selectedDrawing)
+        if (endpoints) {
+          const startX = timeToChartCoordinate(chart, series, endpoints.start.time)
+          const startY = series.priceToCoordinate(endpoints.start.price)
+          const endX = timeToChartCoordinate(chart, series, endpoints.end.time)
+          const endY = series.priceToCoordinate(endpoints.end.price)
+          if (startX !== null && startY !== null && isNearPoint(point, { x: startX, y: startY })) draggingDrawingRef.current = { ...selectedDrawing, endpoint: 'start' }
+          else if (endX !== null && endY !== null && isNearPoint(point, { x: endX, y: endY })) draggingDrawingRef.current = { ...selectedDrawing, endpoint: 'end' }
+        } else if (selectedDrawing.kind === 'risk') {
+          const box = riskRewards.find((item) => item.id === selectedDrawing.id)
+          const takeProfitY = box ? series.priceToCoordinate(box.takeProfit) : null
+          const stopLossY = box ? series.priceToCoordinate(box.stopLoss) : null
+          if (takeProfitY !== null && Math.abs(point.y - takeProfitY) <= 10) draggingDrawingRef.current = { ...selectedDrawing, endpoint: 'takeProfit' }
+          else if (stopLossY !== null && Math.abs(point.y - stopLossY) <= 10) draggingDrawingRef.current = { ...selectedDrawing, endpoint: 'stopLoss' }
+        }
+        if (draggingDrawingRef.current) {
+          event.preventDefault()
+          container.setPointerCapture(event.pointerId)
+          return
+        }
+      }
+
+      const hitLevel = manualLevels.find((level) => {
+        const startX = timeToChartCoordinate(chart, series, level.time)
+        const startY = series.priceToCoordinate(level.price)
+        const endX = timeToChartCoordinate(chart, series, level.endTime)
+        const endY = series.priceToCoordinate(level.endPrice)
+        return startX !== null && startY !== null && endX !== null && endY !== null && distanceToSegment(point, { x: startX, y: startY }, { x: endX, y: endY }) <= 8
+      })
+      const hitFibonacci = !hitLevel && fibonacciDrawings.find((drawing) => fibonacciLevels(drawing).some((level) => {
+        const startX = timeToChartCoordinate(chart, series, level.time)
+        const endX = timeToChartCoordinate(chart, series, level.endTime)
+        const y = series.priceToCoordinate(level.price)
+        return startX !== null && endX !== null && y !== null && distanceToSegment(point, { x: startX, y }, { x: endX, y }) <= 8
+      }))
+      const hitRisk = !hitLevel && !hitFibonacci && riskRewards.find((box) => {
+        const startX = timeToChartCoordinate(chart, series, box.time)
+        const endX = timeToChartCoordinate(chart, series, box.endTime)
+        const entryY = series.priceToCoordinate(box.entry)
         const takeProfitY = series.priceToCoordinate(box.takeProfit)
         const stopLossY = series.priceToCoordinate(box.stopLoss)
-        return [takeProfitY === null ? null : { id: box.id, target: 'takeProfit' as const, y: takeProfitY }, stopLossY === null ? null : { id: box.id, target: 'stopLoss' as const, y: stopLossY }].filter(Boolean)
-      }) as Array<{ id: string, target: 'takeProfit' | 'stopLoss', y: number }>
-      const handle = getRiskRewardHandle(getChartY(event), handles)
-      if (!handle) return
-      event.preventDefault()
-      dragging = handle
-      container.setPointerCapture(event.pointerId)
+        return startX !== null && endX !== null && entryY !== null && takeProfitY !== null && stopLossY !== null
+          && point.x >= Math.min(startX, endX) && point.x <= Math.max(startX, endX)
+          && point.y >= Math.min(entryY, takeProfitY, stopLossY) && point.y <= Math.max(entryY, takeProfitY, stopLossY)
+      })
+      const selection = hitLevel ? { kind: 'level' as const, id: hitLevel.id } : hitFibonacci ? { kind: 'fibonacci' as const, id: hitFibonacci.id } : hitRisk ? { kind: 'risk' as const, id: hitRisk.id } : null
+      setSelectedDrawing(selection)
+      setDrawingMenuPosition(selection ? { x: point.x, y: point.y } : null)
     }
     const onPointerMove = (event: PointerEvent) => {
+      const dragging = draggingDrawingRef.current
       if (!dragging) return
-      const price = series.coordinateToPrice(getChartY(event))
-      if (price !== null) onUpdateRiskReward(dragging.id, dragging.target, price)
+      const point = pointFromEvent(event)
+      if (!point) return
+      if (dragging.kind === 'level' && (dragging.endpoint === 'start' || dragging.endpoint === 'end')) onUpdateManualLevel(dragging.id, dragging.endpoint, point)
+      if (dragging.kind === 'fibonacci' && (dragging.endpoint === 'start' || dragging.endpoint === 'end')) onUpdateFibonacci(dragging.id, dragging.endpoint, point)
+      if (dragging.kind === 'risk' && (dragging.endpoint === 'takeProfit' || dragging.endpoint === 'stopLoss')) onUpdateRiskReward(dragging.id, dragging.endpoint, point.price)
     }
     const onPointerUp = (event: PointerEvent) => {
-      if (!dragging) return
-      dragging = null
+      if (!draggingDrawingRef.current) return
+      draggingDrawingRef.current = null
       if (container.hasPointerCapture(event.pointerId)) container.releasePointerCapture(event.pointerId)
     }
     container.addEventListener('pointerdown', onPointerDown)
     container.addEventListener('pointermove', onPointerMove)
     container.addEventListener('pointerup', onPointerUp)
+    container.addEventListener('pointercancel', onPointerUp)
     return () => {
       container.removeEventListener('pointerdown', onPointerDown)
       container.removeEventListener('pointermove', onPointerMove)
       container.removeEventListener('pointerup', onPointerUp)
+      container.removeEventListener('pointercancel', onPointerUp)
     }
-  }, [riskRewards, onUpdateRiskReward])
+  }, [drawingMode, fibonacciDrawings, manualLevels, onUpdateFibonacci, onUpdateManualLevel, onUpdateRiskReward, riskRewards, selectedDrawing])
 
   useEffect(() => {
     let socket: WebSocket | undefined
@@ -466,7 +560,12 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
   }, [symbol, timeframe, focusTime, onPriceChange, onStatusChange])
 
   return <>
-    <div className="chart-canvas" ref={containerRef} aria-label={`График ${symbol}`} />
+    <div className="chart-canvas" ref={containerRef} aria-label={`График ${symbol}`}>
+      {selectedDrawing && drawingMenuPosition && <div className="drawing-menu" style={{ left: drawingMenuPosition.x, top: drawingMenuPosition.y }}>
+        <span>{selectedDrawing.kind === 'fibonacci' ? 'Фибо' : selectedDrawing.kind === 'risk' ? 'TP / SL' : 'Линия'}</span>
+        <button onClick={() => { onDeleteDrawing(selectedDrawing); setSelectedDrawing(null); setDrawingMenuPosition(null) }}>Удалить</button>
+      </div>}
+    </div>
     <RsiPanel points={rsiData} averagePoints={rsiAverage} candleCount={candleCount} visibleRange={rsiVisibleRange} divergences={rsiDivergences} />
   </>
 }

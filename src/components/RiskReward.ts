@@ -1,6 +1,7 @@
 import type { CanvasRenderingTarget2D } from 'fancy-canvas'
 import type { IChartApiBase, ISeriesApi, ISeriesPrimitive, ISeriesPrimitivePaneRenderer, ISeriesPrimitivePaneView, SeriesAttachedParameter, Time } from 'lightweight-charts'
 import type { RiskRewardBox } from '../lib/trend'
+import { timeToChartCoordinate } from './ChartLevels'
 
 type RenderedRiskReward = RiskRewardBox & { startX: number, endX: number, entryY: number, takeProfitY: number, stopLossY: number }
 export type RiskRewardHandle = { id: string, target: 'takeProfit' | 'stopLoss', y: number }
@@ -70,8 +71,8 @@ class RiskRewardPaneView implements ISeriesPrimitivePaneView {
 
   update(boxes: RiskRewardBox[], chart: IChartApiBase<Time>, series: ISeriesApi<'Candlestick', Time>) {
     this.rendererInstance.update(boxes.flatMap((box) => {
-      const startX = chart.timeScale().timeToCoordinate(box.time as Time)
-      const endX = chart.timeScale().timeToCoordinate(box.endTime as Time)
+      const startX = timeToChartCoordinate(chart, series, box.time)
+      const endX = timeToChartCoordinate(chart, series, box.endTime)
       const entryY = series.priceToCoordinate(box.entry)
       const takeProfitY = series.priceToCoordinate(box.takeProfit)
       const stopLossY = series.priceToCoordinate(box.stopLoss)

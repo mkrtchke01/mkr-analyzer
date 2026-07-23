@@ -319,6 +319,29 @@ export default function App() {
       [symbol]: (previous[symbol] ?? []).map((box) => box.id === id ? { ...box, [target]: price } : box),
     }))
   }, [symbol])
+  const updateManualLevel = useCallback((id: string, endpoint: 'start' | 'end', point: ChartPoint) => {
+    setManualLevelsBySymbol((previous) => ({
+      ...previous,
+      [symbol]: (previous[symbol] ?? []).map((level) => level.id !== id ? level : endpoint === 'start'
+        ? { ...level, time: point.time, price: point.price }
+        : { ...level, endTime: point.time, endPrice: point.price }),
+    }))
+  }, [symbol])
+  const updateFibonacci = useCallback((id: string, endpoint: 'start' | 'end', point: ChartPoint) => {
+    setFibonacciBySymbol((previous) => ({
+      ...previous,
+      [symbol]: (previous[symbol] ?? []).map((drawing) => drawing.id !== id ? drawing : { ...drawing, [endpoint]: point }),
+    }))
+  }, [symbol])
+  const deleteDrawing = useCallback((drawing: { kind: 'level' | 'fibonacci' | 'risk', id: string }) => {
+    if (drawing.kind === 'level') {
+      setManualLevelsBySymbol((previous) => ({ ...previous, [symbol]: (previous[symbol] ?? []).filter((level) => level.id !== drawing.id) }))
+    } else if (drawing.kind === 'fibonacci') {
+      setFibonacciBySymbol((previous) => ({ ...previous, [symbol]: (previous[symbol] ?? []).filter((item) => item.id !== drawing.id) }))
+    } else {
+      setRiskRewardsBySymbol((previous) => ({ ...previous, [symbol]: (previous[symbol] ?? []).filter((box) => box.id !== drawing.id) }))
+    }
+  }, [symbol])
   const clearDrawings = useCallback(() => {
     setManualLevelsBySymbol((previous) => {
       const { [symbol]: _, ...rest } = previous
@@ -451,7 +474,7 @@ export default function App() {
             </div>
           </div>
           <TradePlans tradePlans={fixedTradePlans} availableBalance={accountSummary.balance} accountEquity={accountSummary.equity} />
-          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} priceTickSize={selectedMarket?.tickSize} pricePrecision={selectedMarket?.pricePrecision} tradePlans={fixedTradePlans} manualLevels={manualLevels} fibonacciDrawings={fibonacciDrawings} rsiDivergences={rsiDivergences} riskRewards={riskRewards} focusTime={chartFocusTime} drawingMode={drawingMode} drawingAnchor={drawingAnchor} onDrawingPoint={addDrawingPoint} onUpdateRiskReward={updateRiskReward} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
+          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} priceTickSize={selectedMarket?.tickSize} pricePrecision={selectedMarket?.pricePrecision} tradePlans={fixedTradePlans} manualLevels={manualLevels} fibonacciDrawings={fibonacciDrawings} rsiDivergences={rsiDivergences} riskRewards={riskRewards} focusTime={chartFocusTime} drawingMode={drawingMode} drawingAnchor={drawingAnchor} onDrawingPoint={addDrawingPoint} onUpdateRiskReward={updateRiskReward} onUpdateManualLevel={updateManualLevel} onUpdateFibonacci={updateFibonacci} onDeleteDrawing={deleteDrawing} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
           <footer className="chart-footer">
             <span>Свечи · {timeframe}</span>
             <span>Источник: Bybit public market data</span>
