@@ -565,9 +565,9 @@ export default function App() {
             <button className={`market-row ${market.symbol === symbol ? 'selected' : ''} ${activeMarketSetups[market.symbol]?.[0] ? `setup-${activeMarketSetups[market.symbol]![0].side}` : ''}`} key={market.symbol} onClick={() => setSymbol(market.symbol)}>
               <span className="coin-icon">{baseAsset(market.symbol).slice(0, 1)}</span>
               <span className="coin-name"><span className="market-symbol"><b>{baseAsset(market.symbol)}</b>{activeMarketSetups[market.symbol]?.map((setup) => <em key={`${setup.type}-${setup.side}`}>{`${SETUP_META[setup.type].shortName} ${setup.side.toUpperCase()}`}</em>)}</span><small>USDT · PERP</small></span>
-              <span className={`market-trend ${marketTrends[market.symbol]?.direction ?? 'flat'}`} title="Сила тренда"><i style={{ width: `${marketTrends[market.symbol]?.strength ?? 0}%` }} /></span>
-              <TrendMeter label="Откат" indicator={entryReadinessBySymbol[market.symbol]?.pullback} title="Сила контртрендового отката на 15m и 5m" />
-              <TrendMeter label="Вход" indicator={entryReadinessBySymbol[market.symbol]?.entry} title="Готовность ко входу: сильный 4h/1h контекст, 15m откат и 5m возврат по тренду" />
+              <TrendMeter label="Тренд" indicator={marketTrends[market.symbol]} title="Средняя сила тренда на 4h и 1h" />
+              <TrendMeter label="Откат" indicator={entryReadinessBySymbol[market.symbol]?.pullback} title="Направление и сила 15m" />
+              <TrendMeter label="Вход" indicator={entryReadinessBySymbol[market.symbol]?.entry} title="Сила 5m, когда он не против направления 15m" />
               <span className="market-value">{market.price ? formatPrice(market.price, market.pricePrecision) : '—'}</span>
               <span className={`market-change ${market.change >= 0 ? 'positive' : 'negative'}`}>{market.change >= 0 ? '+' : ''}{market.change.toFixed(2)}%</span>
               <span className="market-volume">{formatTurnover(market.turnover)}</span>
