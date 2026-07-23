@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import PriceChart from './components/PriceChart'
 import { createRiskRewardBox } from './components/RiskReward'
 import SignalHistory from './components/SignalHistory'
@@ -68,6 +68,25 @@ export default function App() {
   const [rsiDivergencesBySymbol, setRsiDivergencesBySymbol] = useState<Record<string, Array<DivergenceInfo & { id: string }>>>({})
   const [chartFocusTime, setChartFocusTime] = useState<number | null>(null)
   const [entryReadinessBySymbol, setEntryReadinessBySymbol] = useState<Record<string, EntryReadiness>>({})
+  const [screenerWidth, setScreenerWidth] = useState<number | null>(null)
+
+  const resizeScreener = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (window.innerWidth <= 800) return
+    const minimumScreenerWidth = 540
+    const minimumWorkspaceWidth = 480
+    const setWidthFromPointer = (clientX: number) => {
+      const width = Math.round(window.innerWidth - clientX)
+      setScreenerWidth(Math.min(Math.max(width, minimumScreenerWidth), window.innerWidth - minimumWorkspaceWidth))
+    }
+    setWidthFromPointer(event.clientX)
+    const onMove = (moveEvent: PointerEvent) => setWidthFromPointer(moveEvent.clientX)
+    const onEnd = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onEnd)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onEnd)
+  }, [])
 
   useEffect(() => {
     void getMarkets()
@@ -362,7 +381,7 @@ export default function App() {
   const drawingCount = manualLevels.length + riskRewards.length + rsiDivergences.length
 
   return (
-    <main className="terminal-shell">
+    <main className="terminal-shell" style={screenerWidth === null ? undefined : { '--screener-width': `${screenerWidth}px` } as CSSProperties}>
       <section className="workspace" aria-label="Терминал анализа рынков">
         <header className="topbar">
           <div className="brand"><span className="brand-mark">M</span> MKR <span>ANALYZER</span></div>
@@ -413,6 +432,7 @@ export default function App() {
         <TrendPanel analyses={trendAnalyses} loading={trendLoading} error={trendError} marketInfo={marketInfo} onShowMarketInfo={showMarketInfo} />
       </section>
 
+      <div className="screener-resizer" role="separator" aria-orientation="vertical" aria-label="Изменить ширину скринера" onPointerDown={resizeScreener} />
       <aside className="markets-panel">
         <header className="markets-header">
           <div>
