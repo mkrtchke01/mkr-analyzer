@@ -83,6 +83,19 @@ export function manualLevelFromChartPoint(price: number, time: Time): Omit<Manua
 
 const timeframeSeconds: Record<Timeframe, number> = { '5m': 300, '15m': 900, '1h': 3600, '4h': 14_400, '1d': 86_400 }
 
+function resolveChartTime(chart: IChartApi, series: ISeriesApi<'Candlestick'>, coordinate: number) {
+  const directTime = chart.timeScale().coordinateToTime(coordinate)
+  const candles = series.data()
+  const latest = candles.at(-1)
+  const previous = candles.at(-2)
+  return extrapolateChartTime(
+    directTime === null ? null : Number(directTime),
+    coordinate,
+    latest && typeof latest.time === 'number' ? { time: latest.time, x: timeToChartCoordinate(chart, series, latest.time) ?? 0 } : null,
+    previous && typeof previous.time === 'number' ? { time: previous.time, x: timeToChartCoordinate(chart, series, previous.time) ?? 0 } : null,
+  )
+}
+
 export function entryLevelFromTradePlan(tradePlan: TradePlan, timeframe: Timeframe): ManualChartLevel | undefined {
   if (tradePlan.entryTime === undefined) return undefined
   const startTime = Math.floor(tradePlan.entryTime / timeframeSeconds[timeframe]) * timeframeSeconds[timeframe]
@@ -275,7 +288,7 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
     const moveDrawingPreview = (event: { point?: { x: number, y: number } }) => {
       if (!event.point) return
       const price = series.coordinateToPrice(event.point.y)
-      const time = chart.timeScale().coordinateToTime(event.point.x)
+      const time = resolveChartTime(chart, series, event.point.x)
       if (price !== null && time !== null) setDrawingPreview({ price, time: Number(time) })
     }
 
@@ -292,7 +305,7 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
     const pointFromPointer = (event: PointerEvent) => {
       const bounds = container.getBoundingClientRect()
       const price = series.coordinateToPrice(event.clientY - bounds.top)
-      const time = chart.timeScale().coordinateToTime(event.clientX - bounds.left)
+      const time = resolveChartTime(chart, series, event.clientX - bounds.left)
       return price === null || time === null ? null : { price, time: Number(time) }
     }
     const startMeasurement = (event: PointerEvent) => {
@@ -356,7 +369,7 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       }
       if (!event.point) return
       const rawPrice = series.coordinateToPrice(event.point.y)
-      const time = chart.timeScale().coordinateToTime(event.point.x)
+      const time = resolveChartTime(chart, series, event.point.x)
       if (rawPrice === null || time === null) return
       onDrawingPoint({ price: rawPrice, time: Number(time) })
     }
@@ -375,16 +388,7 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       const x = event.clientX - bounds.left
       const y = event.clientY - bounds.top
       const price = series.coordinateToPrice(y)
-      const directTime = chart.timeScale().coordinateToTime(x)
-      const candles = candlesRef.current
-      const latest = candles.at(-1)
-      const previous = candles.at(-2)
-      const time = extrapolateChartTime(
-        directTime === null ? null : Number(directTime),
-        x,
-        latest ? { time: latest.time, x: timeToChartCoordinate(chart, series, latest.time) ?? 0 } : null,
-        previous ? { time: previous.time, x: timeToChartCoordinate(chart, series, previous.time) ?? 0 } : null,
-      )
+      const time = resolveChartTime(chart, series, x)
       return price === null || time === null ? null : { x, y, price, time }
     }
     const endpointForSelection = (selection: DrawingSelection) => {
