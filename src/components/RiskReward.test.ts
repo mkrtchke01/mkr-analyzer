@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createRiskRewardBox, getRiskRewardHandle } from './RiskReward'
+import { createRiskRewardBox, getRiskRewardHandle, moveRiskRewardEndpoint } from './RiskReward'
 
 describe('risk reward controls', () => {
   it('selects the nearest TP or SL handle for vertical resizing', () => {
@@ -18,5 +18,12 @@ describe('risk reward controls', () => {
     const short = createRiskRewardBox('short', { price: 100, time: 10 }, { price: 96, time: 20 })
     expect(short).toMatchObject({ entry: 100, takeProfit: 96 })
     expect(short?.stopLoss).toBeCloseTo(101.333333)
+  })
+
+  it('moves the entry and target anchors independently', () => {
+    const box = createRiskRewardBox('long', { price: 100, time: 10 }, { price: 112, time: 20 })!
+
+    expect(moveRiskRewardEndpoint(box, 'start', { price: 101, time: 12 })).toMatchObject({ time: 12, entry: 101, endTime: 20, takeProfit: 112 })
+    expect(moveRiskRewardEndpoint(box, 'end', { price: 115, time: 30 })).toMatchObject({ time: 10, entry: 100, endTime: 30, takeProfit: 115, stopLoss: 95 })
   })
 })
