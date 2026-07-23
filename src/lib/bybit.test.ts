@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { filterMarketList, filterMarkets, formatPrice, getCandles, getMarkets, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, MARKET_LIST_LIMIT, pricePrecisionFromTickSize, sortMarketsBySetupStrength, sortMarketsByTrend, timeframeToBybitInterval } from './bybit'
+import { filterMarketList, filterMarkets, formatPrice, getCandles, getMarkets, getNextMarketSymbol, klineEventToCandle, klineRowsToCandles, MARKET_LIST_LIMIT, pricePrecisionFromTickSize, sortMarketsBySetupStrength, sortMarketsByTrend, sortScreenerMarkets, timeframeToBybitInterval } from './bybit'
 
 describe('Bybit market data conversion', () => {
   it('converts reverse-ordered REST klines into chronological candles', () => {
@@ -122,6 +122,27 @@ describe('Bybit market data conversion', () => {
 
     expect(sortMarketsBySetupStrength(markets, strengths, 'desc').map((market) => market.symbol)).toEqual(['ETHUSDT', 'BTCUSDT', 'SOLUSDT'])
     expect(sortMarketsBySetupStrength(markets, strengths, 'asc').map((market) => market.symbol)).toEqual(['BTCUSDT', 'ETHUSDT', 'SOLUSDT'])
+  })
+
+  it('sorts every screener metric in both directions', () => {
+    const markets = [
+      { symbol: 'BTCUSDT', price: 40, change: -1, turnover: 100 },
+      { symbol: 'ETHUSDT', price: 20, change: 4, turnover: 300 },
+      { symbol: 'SOLUSDT', price: 80, change: 2, turnover: 200 },
+    ]
+    const metrics = {
+      BTCUSDT: { trend: 70, pullback: 10, entry: 20 },
+      ETHUSDT: { trend: 50, pullback: 90, entry: 10 },
+      SOLUSDT: { trend: 80, pullback: 40, entry: 60 },
+    }
+
+    expect(sortScreenerMarkets(markets, 'symbol', 'asc', metrics).map((market) => market.symbol)).toEqual(['BTCUSDT', 'ETHUSDT', 'SOLUSDT'])
+    expect(sortScreenerMarkets(markets, 'trend', 'desc', metrics).map((market) => market.symbol)).toEqual(['SOLUSDT', 'BTCUSDT', 'ETHUSDT'])
+    expect(sortScreenerMarkets(markets, 'pullback', 'desc', metrics).map((market) => market.symbol)).toEqual(['ETHUSDT', 'SOLUSDT', 'BTCUSDT'])
+    expect(sortScreenerMarkets(markets, 'entry', 'asc', metrics).map((market) => market.symbol)).toEqual(['ETHUSDT', 'BTCUSDT', 'SOLUSDT'])
+    expect(sortScreenerMarkets(markets, 'price', 'asc', metrics).map((market) => market.symbol)).toEqual(['ETHUSDT', 'BTCUSDT', 'SOLUSDT'])
+    expect(sortScreenerMarkets(markets, 'change', 'desc', metrics).map((market) => market.symbol)).toEqual(['ETHUSDT', 'SOLUSDT', 'BTCUSDT'])
+    expect(sortScreenerMarkets(markets, 'turnover', 'asc', metrics).map((market) => market.symbol)).toEqual(['BTCUSDT', 'SOLUSDT', 'ETHUSDT'])
   })
 
   it('reports the Bybit status code when loading markets fails', async () => {

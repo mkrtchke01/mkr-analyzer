@@ -125,6 +125,29 @@ export function sortMarketsByTrend(markets: Market[], strengths: Record<string, 
   })
 }
 
+export type ScreenerSortKey = 'symbol' | 'trend' | 'pullback' | 'entry' | 'price' | 'change' | 'turnover'
+
+export type ScreenerMetrics = Record<string, { trend: number, pullback: number, entry: number }>
+
+export function sortScreenerMarkets(markets: Market[], key: ScreenerSortKey, direction: 'asc' | 'desc', metrics: ScreenerMetrics): Market[] {
+  const value = (market: Market): number | string => {
+    if (key === 'symbol') return market.symbol
+    if (key === 'price') return market.price
+    if (key === 'change') return market.change
+    if (key === 'turnover') return market.turnover
+    return metrics[market.symbol]?.[key] ?? 0
+  }
+
+  return [...markets].sort((left, right) => {
+    const leftValue = value(left)
+    const rightValue = value(right)
+    const difference = typeof leftValue === 'string' && typeof rightValue === 'string'
+      ? leftValue.localeCompare(rightValue)
+      : Number(leftValue) - Number(rightValue)
+    return direction === 'desc' ? -difference : difference
+  })
+}
+
 export function sortMarketsBySetupStrength(markets: Market[], strengths: Record<string, number | null | undefined>, direction: 'asc' | 'desc'): Market[] {
   return [...markets].sort((left, right) => {
     const leftStrength = strengths[left.symbol]

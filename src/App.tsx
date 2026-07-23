@@ -3,7 +3,7 @@ import PriceChart from './components/PriceChart'
 import { createRiskRewardBox } from './components/RiskReward'
 import SignalHistory from './components/SignalHistory'
 import TrendPanel, { TradePlans } from './components/TrendPanel'
-import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, MARKET_LIST_LIMIT, sortMarketsByTrend, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
+import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, MARKET_LIST_LIMIT, sortScreenerMarkets, TIMEFRAMES, type Market, type ScreenerMetrics, type ScreenerSortKey, type Timeframe } from './lib/bybit'
 import { getAccountSummary, getSavedSignals, tradePlanFromSavedSignal, type SavedSignal } from './lib/signals'
 import { getMarketInfo, type DivergenceInfo, type MarketInfoSignal } from './lib/marketInfo'
 import { RISK_PER_TRADE_USDT, STARTING_BALANCE_USDT, type AccountSummary } from './lib/positionSizing'
@@ -21,13 +21,19 @@ const SCAN_CONCURRENCY = 3
 const SAVED_SIGNAL_REFRESH_INTERVAL = 5_000
 type DrawingMode = 'level' | 'risk' | null
 type ChartPoint = { price: number, time: number }
-type TrendSort = 'none' | 'asc' | 'desc'
 type StrategyFilterId = ScannerStrategyId
+type SortDirection = 'none' | 'asc' | 'desc'
+type ScreenerSort = { key: ScreenerSortKey, direction: SortDirection }
 
 function TrendMeter({ label, indicator, title }: { label: string, indicator?: TrendIndicator, title: string }) {
   const strength = indicator?.strength ?? 0
   const direction = indicator?.direction ?? 'flat'
   return <span className={`trend-meter ${direction}`} title={title} aria-label={`${label}: ${strength} из 100`}><b>{strength}</b><i><span style={{ width: `${strength}%` }} /></i></span>
+}
+
+function ScreenerSortButton({ label, sort, sortKey, onClick }: { label: string, sort: ScreenerSort, sortKey: ScreenerSortKey, onClick: (key: ScreenerSortKey) => void }) {
+  const direction = sort.key === sortKey ? sort.direction : 'none'
+  return <button className={`screener-sort ${direction !== 'none' ? 'active' : ''}`} onClick={() => onClick(sortKey)} aria-label={`Сортировать по колонке ${label}`}>{label} <i>{direction === 'desc' ? '↓' : direction === 'asc' ? '↑' : '↕'}</i></button>
 }
 
 function baseAsset(symbol: string) {
@@ -59,7 +65,7 @@ export default function App() {
   const [drawingAnchor, setDrawingAnchor] = useState<ChartPoint | null>(null)
   const [marketsReady, setMarketsReady] = useState(false)
   const [marketTrends, setMarketTrends] = useState<Record<string, TrendIndicator>>({})
-  const [trendSort, setTrendSort] = useState<TrendSort>('none')
+  const [screenerSort, setScreenerSort] = useState<ScreenerSort>({ key: 'trend', direction: 'none' })
   const [setupScanning, setSetupScanning] = useState(false)
   const [savedOpenSignals, setSavedOpenSignals] = useState<SavedSignal[]>([])
   const [accountSummary, setAccountSummary] = useState<AccountSummary>({ balance: STARTING_BALANCE_USDT, equity: STARTING_BALANCE_USDT, lockedMargin: 0, pnl: 0, closedTrades: 0 })
@@ -218,18 +224,26 @@ export default function App() {
     const strategy = SCANNER_STRATEGIES.find((item) => item.id === strategyFilter)
     return new Set(savedOpenSignals.filter((signal) => strategy?.setupTypes.includes(signal.setupType)).map((signal) => signal.symbol))
   }, [savedOpenSignals, strategyFilter])
-  const trendStrengths = useMemo(
-    () => Object.fromEntries(Object.entries(marketTrends).map(([marketSymbol, trend]) => [marketSymbol, trend.strength])),
-    [marketTrends],
-  )
+  const screenerMetrics = useMemo(() => Object.fromEntries(markets.map((market) => [market.symbol, {
+    trend: marketTrends[market.symbol]?.strength ?? 0,
+    pullback: entryReadinessBySymbol[market.symbol]?.pullback.strength ?? 0,
+    entry: entryReadinessBySymbol[market.symbol]?.entry.strength ?? 0,
+  }])) as ScreenerMetrics, [entryReadinessBySymbol, marketTrends, markets])
   const visibleMarkets = useMemo(
     () => {
       const filtered = filterMarketList(markets, search, setupSymbols, setupsOnly, strategySymbols)
-      const trendSorted = trendSort === 'none' ? filtered : sortMarketsByTrend(filtered, trendStrengths, trendSort)
-      return trendSorted.slice(0, MARKET_LIST_LIMIT)
+      const sorted = screenerSort.direction === 'none' ? filtered : sortScreenerMarkets(filtered, screenerSort.key, screenerSort.direction, screenerMetrics)
+      return sorted.slice(0, MARKET_LIST_LIMIT)
     },
-    [markets, search, setupSymbols, setupsOnly, strategySymbols, trendSort, trendStrengths],
+    [markets, search, screenerMetrics, screenerSort, setupSymbols, setupsOnly, strategySymbols],
   )
+
+  const toggleScreenerSort = useCallback((key: ScreenerSortKey) => {
+    setScreenerSort((current) => ({
+      key,
+      direction: current.key !== key || current.direction === 'none' ? 'desc' : current.direction === 'desc' ? 'asc' : 'none',
+    }))
+  }, [])
 
   useEffect(() => {
     const selectNextMarket = (event: KeyboardEvent) => {
@@ -467,7 +481,7 @@ export default function App() {
             </div>
           </section>
         </>}
-        <div className="list-label"><span>ПАРА</span><button className={`trend-sort ${trendSort !== 'none' ? 'active' : ''}`} onClick={() => setTrendSort((current) => current === 'none' ? 'desc' : current === 'desc' ? 'asc' : 'none')} aria-label="Сортировать по силе тренда">ТРЕНД <i>{trendSort === 'desc' ? '↓' : trendSort === 'asc' ? '↑' : '↕'}</i></button><span>ОТКАТ</span><span>ВХОД</span><span>ЦЕНА / 24Ч</span></div>
+        <div className="list-label"><ScreenerSortButton label="ПАРА" sort={screenerSort} sortKey="symbol" onClick={toggleScreenerSort} /><ScreenerSortButton label="ТРЕНД" sort={screenerSort} sortKey="trend" onClick={toggleScreenerSort} /><ScreenerSortButton label="ОТКАТ" sort={screenerSort} sortKey="pullback" onClick={toggleScreenerSort} /><ScreenerSortButton label="ВХОД" sort={screenerSort} sortKey="entry" onClick={toggleScreenerSort} /><ScreenerSortButton label="ЦЕНА" sort={screenerSort} sortKey="price" onClick={toggleScreenerSort} /><ScreenerSortButton label="24Ч" sort={screenerSort} sortKey="change" onClick={toggleScreenerSort} /><ScreenerSortButton label="ОБЪЁМ" sort={screenerSort} sortKey="turnover" onClick={toggleScreenerSort} /></div>
         <div className="market-list">
           {visibleMarkets.map((market) => (
             <button className={`market-row ${market.symbol === symbol ? 'selected' : ''} ${activeMarketSetups[market.symbol]?.[0] ? `setup-${activeMarketSetups[market.symbol]![0].side}` : ''}`} key={market.symbol} onClick={() => setSymbol(market.symbol)}>
@@ -476,7 +490,9 @@ export default function App() {
               <span className={`market-trend ${marketTrends[market.symbol]?.direction ?? 'flat'}`} title="Сила тренда"><i style={{ width: `${marketTrends[market.symbol]?.strength ?? 0}%` }} /></span>
               <TrendMeter label="Откат" indicator={entryReadinessBySymbol[market.symbol]?.pullback} title="Сила контртрендового отката на 15m и 5m" />
               <TrendMeter label="Вход" indicator={entryReadinessBySymbol[market.symbol]?.entry} title="Готовность ко входу: сильный 4h/1h контекст, 15m откат и 5m возврат по тренду" />
-              <span className="market-values"><b>{market.price ? formatPrice(market.price, market.pricePrecision) : '—'}</b><small className={market.change >= 0 ? 'positive' : 'negative'}>{market.change >= 0 ? '+' : ''}{market.change.toFixed(2)}%</small></span>
+              <span className="market-value">{market.price ? formatPrice(market.price, market.pricePrecision) : '—'}</span>
+              <span className={`market-change ${market.change >= 0 ? 'positive' : 'negative'}`}>{market.change >= 0 ? '+' : ''}{market.change.toFixed(2)}%</span>
+              <span className="market-volume">{formatTurnover(market.turnover)}</span>
             </button>
           ))}
           {!visibleMarkets.length && <div className="empty-state">{setupsOnly ? 'Открытых сетапов пока нет' : 'Монеты не найдены'}</div>}
