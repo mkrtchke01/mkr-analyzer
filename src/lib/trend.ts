@@ -462,7 +462,7 @@ export function calculateTrendReclaimPlan(candles: Candle[], context: TrendRecla
   return {
     setupType: 'trend-reclaim',
     setupName: SETUP_META['trend-reclaim'].name,
-    setupNote: `4h / 1h / 15m ${side.toUpperCase()} · импульс 1h и коррекция ${(hourlyPullback.retracement * 100).toFixed(1)}% · 5m разворот от экстремума коррекции`,
+    setupNote: `4h / 1h / 15m ${side.toUpperCase()} · импульс 1h и коррекция ${(hourlyPullback.retracement * 100).toFixed(1)}% · 15m разворот от экстремума коррекции`,
     stop,
     takeProfits: [
       { id: 'TP1', price: localTarget.price, share: 50, riskMultiple: rewardToTarget / risk },

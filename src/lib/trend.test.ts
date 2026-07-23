@@ -337,16 +337,16 @@ describe('trend analysis', () => {
     const plan = calculateTradePlan(makeStoppedPullbackCandles(), context)
 
     expect(plan).toMatchObject({ setupType: 'trend-reclaim', stop: { side: 'long' } })
-    expect(plan!.setupNote).toContain('5m разворот от экстремума коррекции')
+    expect(plan!.setupNote).toContain('15m разворот от экстремума коррекции')
   })
 
   it('recognizes a fresh 1h correction only after a directional 1h impulse', () => {
     expect(findHourlyPullback(makeHourlyPullbackCandles(), 'long')).toMatchObject({ correctionPrice: 119.2 })
   })
 
-  it('rejects a 5m reversal that is not formed at the active 1h correction', () => {
+  it('rejects a 15m reversal that is not formed at the active 1h correction', () => {
     const hourlyCandles = makeHourlyPullbackCandles()
-    const fiveMinuteCandles = makeStoppedPullbackCandles().map((candle) => ({
+    const fifteenMinuteCandles = makeStoppedPullbackCandles().map((candle) => ({
       ...candle,
       open: candle.open + 4,
       high: candle.high + 4,
@@ -354,7 +354,7 @@ describe('trend analysis', () => {
       close: candle.close + 4,
     }))
 
-    expect(calculateTradePlan(fiveMinuteCandles, {
+    expect(calculateTradePlan(fifteenMinuteCandles, {
       fourHour: analysis('4h', 'bullish', 60),
       oneHour: analysis('1h', 'bullish', 60),
       fifteenMinute: analysis('15m', 'bullish', 60),

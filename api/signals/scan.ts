@@ -11,7 +11,7 @@ import { isAuthorizedCronRequest, supabaseRequest, uploadSnapshot } from '../_li
 const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
 const MAX_CONCURRENCY = 5
 const MINIMUM_SIGNAL_STRENGTH = 7
-const TREND_RECLAIM_RULE_VERSION = 2
+const TREND_RECLAIM_RULE_VERSION = 3
 
 type StoredSignal = {
   id: string
@@ -274,7 +274,7 @@ async function scanMarket(symbol: string, openSymbols: ReadonlySet<string>, fund
   const multiTimeframeCandles = await Promise.all(ANALYSIS_TIMEFRAMES.map((timeframe) => getCandles(symbol, timeframe, timeframe === '5m' ? 360 : 180)))
   const confirmed = multiTimeframeCandles.map(closedCandles)
   const analyses = confirmed.map((candles, index) => analyzeTrend(candles, ANALYSIS_TIMEFRAMES[index]))
-  const entryCandles = confirmed[3]
+  const entryCandles = confirmed[2]
   const plans = calculateTradePlans(entryCandles, getOverallTrend(analyses), {
     fourHour: analyses[0],
     oneHour: analyses[1],

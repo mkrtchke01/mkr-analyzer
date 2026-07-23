@@ -44,7 +44,7 @@ describe('signal persistence', () => {
     await expect(persistPlan('AXTIUSDT', plan, strongAnalyses, [candle])).resolves.toBe(true)
 
     const insertPayload = JSON.parse(mocks.supabaseRequest.mock.calls[0][1].body)
-    expect(insertPayload).toMatchObject({ symbol: 'AXTIUSDT', snapshot_path: null, setup_type: 'trend-reclaim', plan_snapshot: { trendReclaimRuleVersion: 2, signalStrength: { score: 10 }, positionSizing: { riskAmount: 2 } } })
+    expect(insertPayload).toMatchObject({ symbol: 'AXTIUSDT', snapshot_path: null, setup_type: 'trend-reclaim', plan_snapshot: { trendReclaimRuleVersion: 3, signalStrength: { score: 10 }, positionSizing: { riskAmount: 2 } } })
     expect(mocks.supabaseRequest.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false)
     expect(mocks.uploadSnapshot).toHaveBeenCalledOnce()
   })
@@ -76,6 +76,6 @@ describe('signal persistence', () => {
 
   it('expires trend-reclaim snapshots created before its entry rules', () => {
     expect(requiresSetupRuleRevalidation({ setup_type: 'trend-reclaim', plan_snapshot: null })).toBe(true)
-    expect(requiresSetupRuleRevalidation({ setup_type: 'trend-reclaim', plan_snapshot: { trendReclaimRuleVersion: 2 } })).toBe(false)
+    expect(requiresSetupRuleRevalidation({ setup_type: 'trend-reclaim', plan_snapshot: { trendReclaimRuleVersion: 3 } })).toBe(false)
   })
 })
