@@ -15,7 +15,6 @@ export type ScannerStrategy = {
 }
 
 export const SCANNER_STRATEGIES: readonly ScannerStrategy[] = [
-  { id: 'trend-reclaim', shortName: 'TR', name: 'Возврат к тренду', setupTypes: ['trend-reclaim'] },
 ]
 
 export function getScannerStrategy(setupType: SetupType): ScannerStrategy | undefined {
@@ -23,7 +22,7 @@ export function getScannerStrategy(setupType: SetupType): ScannerStrategy | unde
 }
 
 export const SETUP_META: Record<SetupType, { shortName: string; name: string }> = {
-  'trend-reclaim': SCANNER_STRATEGIES[0],
+  'trend-reclaim': { shortName: 'TR', name: 'Возврат к тренду' },
   'level-breakout': { shortName: 'LB', name: 'Пробой уровня' },
   'false-breakout': { shortName: 'FB', name: 'Ложный пробой' },
   // Направления хранятся разными типами для логики и истории, но для пользователя

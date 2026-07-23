@@ -109,7 +109,7 @@ export default function SignalHistory({ openSignals, onClose, onSelectSymbol }: 
           <span className={stat.profitable ? 'positive' : ''}>{stat.profitable}</span>
           <strong className={stat.pnl > 0 ? 'positive' : stat.pnl < 0 ? 'negative' : ''}>{stat.pnl >= 0 ? '+' : ''}${stat.pnl.toFixed(2)}</strong>
         </div>})}
-        {!strategyStats.length && <div className="strategy-statistics-empty">Загружаем статистику…</div>}
+        {!strategyStats.length && <div className="strategy-statistics-empty">Активных стратегий нет.</div>}
       </section>}
       {state !== 'statistics' && <div className="signal-list">
         {signals.map((signal) => <button key={signal.id} className={`signal-card ${signal.side} ${selected?.id === signal.id ? 'selected' : ''}`} onClick={() => { setSelected(signal); onSelectSymbol(signal.symbol) }}>

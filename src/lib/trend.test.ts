@@ -237,8 +237,8 @@ const analysis = (timeframe: TrendAnalysis['timeframe'], direction: TrendAnalysi
 })
 
 describe('trend analysis', () => {
-  it('exposes only the trend-reclaim scanner strategy', () => {
-    expect(getScannerStrategy('trend-reclaim')).toMatchObject({ shortName: 'TR', name: 'Возврат к тренду' })
+  it('does not expose scanner strategies while scanning is disabled', () => {
+    expect(getScannerStrategy('trend-reclaim')).toBeUndefined()
     expect(getScannerStrategy('bottom-reversal')).toBeUndefined()
   })
 

@@ -12,6 +12,7 @@ const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
 const MAX_CONCURRENCY = 5
 const MINIMUM_SIGNAL_STRENGTH = 7
 const TREND_RECLAIM_RULE_VERSION = 3
+export const SIGNAL_SCANNING_ENABLED = false
 
 type StoredSignal = {
   id: string
@@ -289,6 +290,10 @@ async function scanMarket(symbol: string, openSymbols: ReadonlySet<string>, fund
 export default async function handler(request: any, response: any) {
   if (request.method !== 'POST') return response.status(405).json({ error: 'Method not allowed' })
   if (!isAuthorizedCronRequest(request.headers.authorization)) return response.status(401).json({ error: 'Unauthorized' })
+  if (!SIGNAL_SCANNING_ENABLED) {
+    response.setHeader('Cache-Control', 'no-store')
+    return response.status(200).json({ ok: true, disabled: true, reason: 'All strategies are disabled' })
+  }
 
   let runId: string | undefined
   try {

@@ -417,23 +417,25 @@ export default function App() {
           <span>⌕</span>
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Найти монету" aria-label="Найти монету" />
         </label>
-        <label className="setups-only-filter">
-          <input type="checkbox" checked={setupsOnly} onChange={(event) => { setSetupsOnly(event.target.checked); if (!event.target.checked) setStrategyFilter(null) }} />
-          <span>Только сетапы</span>
-          <b>{Object.keys(activeMarketSetups).length}</b>
-        </label>
-        <section className="strategy-filter" aria-label="Стратегии сетапов">
-          <span className="strategy-filter-title">СТРАТЕГИИ</span>
-          <div className="strategy-filter-list">
-            {SCANNER_STRATEGIES.map((strategy) => <button className={strategyFilter === strategy.id ? 'active' : ''} aria-pressed={strategyFilter === strategy.id} key={strategy.id} onClick={() => {
-              setStrategyFilter((current) => current === strategy.id ? null : strategy.id)
-              setSetupsOnly(true)
-            }}>
-              <span><b>{strategy.shortName}</b>{strategy.name}</span>
-              <strong>{strategyCounts[strategy.id]}</strong>
-            </button>)}
-          </div>
-        </section>
+        {SCANNER_STRATEGIES.length > 0 && <>
+          <label className="setups-only-filter">
+            <input type="checkbox" checked={setupsOnly} onChange={(event) => { setSetupsOnly(event.target.checked); if (!event.target.checked) setStrategyFilter(null) }} />
+            <span>Только сетапы</span>
+            <b>{Object.keys(activeMarketSetups).length}</b>
+          </label>
+          <section className="strategy-filter" aria-label="Стратегии сетапов">
+            <span className="strategy-filter-title">СТРАТЕГИИ</span>
+            <div className="strategy-filter-list">
+              {SCANNER_STRATEGIES.map((strategy) => <button className={strategyFilter === strategy.id ? 'active' : ''} aria-pressed={strategyFilter === strategy.id} key={strategy.id} onClick={() => {
+                setStrategyFilter((current) => current === strategy.id ? null : strategy.id)
+                setSetupsOnly(true)
+              }}>
+                <span><b>{strategy.shortName}</b>{strategy.name}</span>
+                <strong>{strategyCounts[strategy.id]}</strong>
+              </button>)}
+            </div>
+          </section>
+        </>}
         <div className="list-label"><span>ПАРА</span><button className={`trend-sort ${trendSort !== 'none' ? 'active' : ''}`} onClick={() => { setTrendSort((current) => current === 'none' ? 'desc' : current === 'desc' ? 'asc' : 'none'); setSetupStrengthSort('none') }} aria-label="Сортировать по силе тренда">ТРЕНД <i>{trendSort === 'desc' ? '↓' : trendSort === 'asc' ? '↑' : '↕'}</i></button><button className={`strength-sort ${setupStrengthSort !== 'none' ? 'active' : ''}`} onClick={() => { setSetupStrengthSort((current) => current === 'none' ? 'desc' : current === 'desc' ? 'asc' : 'none'); setTrendSort('none') }} aria-label="Сортировать по силе сетапа">СИЛА <i>{setupStrengthSort === 'desc' ? '↓' : setupStrengthSort === 'asc' ? '↑' : '↕'}</i></button><span>ЦЕНА / 24Ч</span></div>
         <div className="market-list">
           {visibleMarkets.map((market) => (
