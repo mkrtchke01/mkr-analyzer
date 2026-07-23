@@ -103,6 +103,12 @@ export type ManualChartLevel = {
   extendRight?: boolean
 }
 
+export type FibonacciDrawing = {
+  id: string
+  start: { price: number, time: number }
+  end: { price: number, time: number }
+}
+
 export type TrendIndicator = {
   direction: TrendDirection
   strength: number

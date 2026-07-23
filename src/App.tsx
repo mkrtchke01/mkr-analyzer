@@ -7,7 +7,7 @@ import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSym
 import { getAccountSummary, getSavedSignals, tradePlanFromSavedSignal, type SavedSignal } from './lib/signals'
 import { getMarketInfo, type DivergenceInfo, type MarketInfoSignal } from './lib/marketInfo'
 import { RISK_PER_TRADE_USDT, STARTING_BALANCE_USDT, type AccountSummary } from './lib/positionSizing'
-import { analyzeTrend, getEntryReadiness, getTrendIndicator, SCANNER_STRATEGIES, SETUP_META, type EntryReadiness, type ManualChartLevel, type RiskRewardBox, type ScannerStrategyId, type SetupSignal, type TrendAnalysis, type TrendIndicator } from './lib/trend'
+import { analyzeTrend, getEntryReadiness, getTrendIndicator, SCANNER_STRATEGIES, SETUP_META, type EntryReadiness, type FibonacciDrawing, type ManualChartLevel, type RiskRewardBox, type ScannerStrategyId, type SetupSignal, type TrendAnalysis, type TrendIndicator } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
   { symbol: 'BTCUSDT', price: 0, change: 0, turnover: 0 },
@@ -19,7 +19,7 @@ const ANALYSIS_TIMEFRAMES: Timeframe[] = ['4h', '1h', '15m', '5m']
 const SCAN_INTERVAL = 5 * 60_000
 const SCAN_CONCURRENCY = 3
 const SAVED_SIGNAL_REFRESH_INTERVAL = 5_000
-type DrawingMode = 'level' | 'risk' | null
+type DrawingMode = 'level' | 'risk' | 'fibonacci' | null
 type ChartPoint = { price: number, time: number }
 type StrategyFilterId = ScannerStrategyId
 type SortDirection = 'none' | 'asc' | 'desc'
@@ -61,6 +61,7 @@ export default function App() {
   const [trendError, setTrendError] = useState(false)
   const [manualLevelsBySymbol, setManualLevelsBySymbol] = useState<Record<string, ManualChartLevel[]>>({})
   const [riskRewardsBySymbol, setRiskRewardsBySymbol] = useState<Record<string, RiskRewardBox[]>>({})
+  const [fibonacciBySymbol, setFibonacciBySymbol] = useState<Record<string, FibonacciDrawing[]>>({})
   const [drawingMode, setDrawingMode] = useState<DrawingMode>(null)
   const [drawingAnchor, setDrawingAnchor] = useState<ChartPoint | null>(null)
   const [marketsReady, setMarketsReady] = useState(false)
@@ -295,7 +296,7 @@ export default function App() {
         ...previous,
         [symbol]: [...(previous[symbol] ?? []), { ...drawingAnchor, endTime: point.time, endPrice: point.price, id: `${Date.now()}-${Math.random()}` }],
       }))
-    } else {
+    } else if (drawingMode === 'risk') {
       const box = createRiskRewardBox(`${Date.now()}-${Math.random()}`, drawingAnchor, point)
       if (box) {
         setRiskRewardsBySymbol((previous) => ({
@@ -303,6 +304,11 @@ export default function App() {
           [symbol]: [...(previous[symbol] ?? []), box],
         }))
       }
+    } else {
+      setFibonacciBySymbol((previous) => ({
+        ...previous,
+        [symbol]: [...(previous[symbol] ?? []), { id: `${Date.now()}-${Math.random()}`, start: drawingAnchor, end: point }],
+      }))
     }
     setDrawingAnchor(null)
     setDrawingMode(null)
@@ -319,6 +325,10 @@ export default function App() {
       return rest
     })
     setRiskRewardsBySymbol((previous) => {
+      const { [symbol]: _, ...rest } = previous
+      return rest
+    })
+    setFibonacciBySymbol((previous) => {
       const { [symbol]: _, ...rest } = previous
       return rest
     })
@@ -390,9 +400,10 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [symbol])
   const manualLevels = manualLevelsBySymbol[symbol] ?? []
+  const fibonacciDrawings = fibonacciBySymbol[symbol] ?? []
   const rsiDivergences = rsiDivergencesBySymbol[symbol] ?? []
   const riskRewards = riskRewardsBySymbol[symbol] ?? []
-  const drawingCount = manualLevels.length + riskRewards.length + rsiDivergences.length
+  const drawingCount = manualLevels.length + fibonacciDrawings.length + riskRewards.length + rsiDivergences.length
 
   return (
     <main className="terminal-shell" style={screenerWidth === null ? undefined : { '--screener-width': `${screenerWidth}px` } as CSSProperties}>
@@ -430,6 +441,9 @@ export default function App() {
               <button className={`chart-level-toggle ${drawingMode === 'risk' ? 'active' : ''}`} onClick={() => { setDrawingMode((mode) => mode === 'risk' ? null : 'risk'); setDrawingAnchor(null) }} aria-pressed={drawingMode === 'risk'}>
                 {drawingMode === 'risk' ? (drawingAnchor ? 'Цель TP' : 'Вход') : 'TP / SL'}
               </button>
+              <button className={`chart-level-toggle ${drawingMode === 'fibonacci' ? 'active' : ''}`} onClick={() => { setDrawingMode((mode) => mode === 'fibonacci' ? null : 'fibonacci'); setDrawingAnchor(null) }} aria-pressed={drawingMode === 'fibonacci'}>
+                {drawingMode === 'fibonacci' ? (drawingAnchor ? 'Конец Фибо' : 'Начало Фибо') : 'Фибо'}
+              </button>
               {drawingCount > 0 && <button className="chart-level-clear" onClick={clearDrawings}>Очистить {drawingCount}</button>}
               <div className={`connection ${status}`}>
                 <i /> {status === 'live' ? 'Поток данных' : status === 'loading' ? 'Загрузка' : 'Переподключение'}
@@ -437,7 +451,7 @@ export default function App() {
             </div>
           </div>
           <TradePlans tradePlans={fixedTradePlans} availableBalance={accountSummary.balance} accountEquity={accountSummary.equity} />
-          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} priceTickSize={selectedMarket?.tickSize} pricePrecision={selectedMarket?.pricePrecision} tradePlans={fixedTradePlans} manualLevels={manualLevels} rsiDivergences={rsiDivergences} riskRewards={riskRewards} focusTime={chartFocusTime} drawingMode={drawingMode} drawingAnchor={drawingAnchor} onDrawingPoint={addDrawingPoint} onUpdateRiskReward={updateRiskReward} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
+          <PriceChart key={symbol} symbol={symbol} timeframe={timeframe} priceTickSize={selectedMarket?.tickSize} pricePrecision={selectedMarket?.pricePrecision} tradePlans={fixedTradePlans} manualLevels={manualLevels} fibonacciDrawings={fibonacciDrawings} rsiDivergences={rsiDivergences} riskRewards={riskRewards} focusTime={chartFocusTime} drawingMode={drawingMode} drawingAnchor={drawingAnchor} onDrawingPoint={addDrawingPoint} onUpdateRiskReward={updateRiskReward} onStatusChange={handleStatusChange} onPriceChange={handlePriceChange} />
           <footer className="chart-footer">
             <span>Свечи · {timeframe}</span>
             <span>Источник: Bybit public market data</span>

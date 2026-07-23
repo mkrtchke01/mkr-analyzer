@@ -3,8 +3,9 @@ import { ColorType, CrosshairMode, createChart, LineStyle, type CandlestickData,
 import { chartWebSocketUrl, getCandles, klineEventToCandle, timeframeToBybitInterval, type Candle, type Timeframe } from '../lib/bybit'
 import { calculateRsi, calculateRsiSma, type RsiPoint } from '../lib/rsi'
 import type { DivergenceInfo } from '../lib/marketInfo'
-import { SETUP_META, type ManualChartLevel, type RiskRewardBox, type TradePlan } from '../lib/trend'
+import { SETUP_META, type FibonacciDrawing, type ManualChartLevel, type RiskRewardBox, type TradePlan } from '../lib/trend'
 import { ChartLevelsPrimitive } from './ChartLevels'
+import { fibonacciLevels } from './Fibonacci'
 import { MeasurementPrimitive, type ChartMeasurement } from './Measurement'
 import { createRiskRewardBox, getRiskRewardHandle, RiskRewardPrimitive } from './RiskReward'
 import RsiPanel from './RsiPanel'
@@ -16,10 +17,11 @@ type PriceChartProps = {
   pricePrecision?: number
   tradePlans: TradePlan[]
   manualLevels: ManualChartLevel[]
+  fibonacciDrawings: FibonacciDrawing[]
   rsiDivergences: Array<DivergenceInfo & { id: string }>
   riskRewards: RiskRewardBox[]
   focusTime: number | null
-  drawingMode: 'level' | 'risk' | null
+  drawingMode: 'level' | 'risk' | 'fibonacci' | null
   drawingAnchor: { price: number, time: number } | null
   onDrawingPoint: (point: { price: number, time: number }) => void
   onUpdateRiskReward: (id: string, target: 'takeProfit' | 'stopLoss', price: number) => void
@@ -90,7 +92,7 @@ export function entryLevelFromTradePlan(tradePlan: TradePlan, timeframe: Timefra
   }
 }
 
-export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrecision, tradePlans, manualLevels, rsiDivergences, riskRewards, focusTime, drawingMode, drawingAnchor, onDrawingPoint, onUpdateRiskReward, onStatusChange, onPriceChange }: PriceChartProps) {
+export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrecision, tradePlans, manualLevels, fibonacciDrawings, rsiDivergences, riskRewards, focusTime, drawingMode, drawingAnchor, onDrawingPoint, onUpdateRiskReward, onStatusChange, onPriceChange }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -237,9 +239,12 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
     const preview = drawingMode === 'level' && drawingAnchor && drawingPreview
       ? [{ id: 'drawing-preview', price: drawingAnchor.price, time: drawingAnchor.time, endPrice: drawingPreview.price, endTime: drawingPreview.time }]
       : []
+    const fibonacciPreview = drawingMode === 'fibonacci' && drawingAnchor && drawingPreview
+      ? fibonacciLevels({ id: 'fibonacci-preview', start: drawingAnchor, end: drawingPreview })
+      : []
     const entries = tradePlans.map((tradePlan) => entryLevelFromTradePlan(tradePlan, timeframe)).filter((level): level is ManualChartLevel => Boolean(level))
-    levelPrimitiveRef.current?.setLevels([...manualLevels, ...entries, ...preview])
-  }, [drawingAnchor, drawingMode, drawingPreview, manualLevels, timeframe, tradePlans])
+    levelPrimitiveRef.current?.setLevels([...manualLevels, ...fibonacciDrawings.flatMap(fibonacciLevels), ...entries, ...preview, ...fibonacciPreview])
+  }, [drawingAnchor, drawingMode, drawingPreview, fibonacciDrawings, manualLevels, timeframe, tradePlans])
 
   useEffect(() => {
     const chart = chartRef.current
