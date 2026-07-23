@@ -23,7 +23,7 @@ describe('position sizing', () => {
   })
 
   it('reserves open-trade margin from the available balance', () => {
-    expect(calculateAccountSummary([3, -1, null, 0.5], [12, 8])).toEqual({ balance: 0, equity: 5, lockedMargin: 20, pnl: 5, closedTrades: 3 })
+    expect(calculateAccountSummary([3, -1, null, 0.5], [12, 8])).toEqual({ balance: 85, equity: 105, lockedMargin: 20, pnl: 5, closedTrades: 3 })
   })
 
   it('converts a closed trade result to its fixed-risk dollar PnL', () => {
@@ -33,8 +33,8 @@ describe('position sizing', () => {
 
   it('can use already netted dollar PnL in the account balance', () => {
     const account = calculateAccountSummaryFromPnl([3.45, -2.55], [10])
-    expect(account).toMatchObject({ balance: 0, lockedMargin: 10, closedTrades: 2 })
-    expect(account.equity).toBeCloseTo(0.9, 6)
+    expect(account).toMatchObject({ balance: 90.9, lockedMargin: 10, closedTrades: 2 })
+    expect(account.equity).toBeCloseTo(100.9, 6)
     expect(account.pnl).toBeCloseTo(0.9, 6)
   })
 })

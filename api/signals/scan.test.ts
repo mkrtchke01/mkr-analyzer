@@ -37,14 +37,16 @@ describe('signal persistence', () => {
     mocks.uploadSnapshot.mockReset()
   })
 
-  it('does not persist a setup while all strategies are disabled', async () => {
+  it('keeps a valid setup when snapshot storage is unavailable', async () => {
     mocks.supabaseRequest.mockResolvedValueOnce([{ id: 'signal-id' }]).mockResolvedValueOnce(undefined)
     mocks.uploadSnapshot.mockRejectedValueOnce(new Error('Storage unavailable'))
 
-    await expect(persistPlan('AXTIUSDT', plan, strongAnalyses, [candle])).resolves.toBe(false)
+    await expect(persistPlan('AXTIUSDT', plan, strongAnalyses, [candle])).resolves.toBe(true)
 
-    expect(mocks.supabaseRequest).not.toHaveBeenCalled()
-    expect(mocks.uploadSnapshot).not.toHaveBeenCalled()
+    const insertPayload = JSON.parse(mocks.supabaseRequest.mock.calls[0][1].body)
+    expect(insertPayload).toMatchObject({ symbol: 'AXTIUSDT', snapshot_path: null, setup_type: 'trend-reclaim', plan_snapshot: { trendReclaimRuleVersion: 3, signalStrength: { score: 10 }, positionSizing: { riskAmount: 2 } } })
+    expect(mocks.supabaseRequest.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false)
+    expect(mocks.uploadSnapshot).toHaveBeenCalledOnce()
   })
 
   it('treats the database open-symbol lock as an already existing setup', async () => {

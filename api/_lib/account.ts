@@ -1,4 +1,4 @@
-export const STARTING_BALANCE_USDT = 0
+export const STARTING_BALANCE_USDT = 100
 export const RISK_PER_TRADE_USDT = 2
 export const MAX_OPEN_POSITIONS = 3
 export const PREFERRED_CONCURRENT_POSITIONS = 2
