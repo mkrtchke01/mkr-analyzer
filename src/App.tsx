@@ -3,12 +3,11 @@ import PriceChart from './components/PriceChart'
 import { createRiskRewardBox } from './components/RiskReward'
 import SignalHistory from './components/SignalHistory'
 import TrendPanel, { TradePlans } from './components/TrendPanel'
-import SetupStrength from './components/SetupStrength'
-import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, MARKET_LIST_LIMIT, sortMarketsBySetupStrength, sortMarketsByTrend, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
+import { filterMarketList, formatPrice, getCandles, getMarkets, getNextMarketSymbol, MARKET_LIST_LIMIT, sortMarketsByTrend, TIMEFRAMES, type Market, type Timeframe } from './lib/bybit'
 import { getAccountSummary, getSavedSignals, tradePlanFromSavedSignal, type SavedSignal } from './lib/signals'
 import { getMarketInfo, type DivergenceInfo, type MarketInfoSignal } from './lib/marketInfo'
 import { RISK_PER_TRADE_USDT, STARTING_BALANCE_USDT, type AccountSummary } from './lib/positionSizing'
-import { analyzeTrend, getTrendIndicator, SCANNER_STRATEGIES, SETUP_META, type ManualChartLevel, type RiskRewardBox, type ScannerStrategyId, type SetupSignal, type TrendAnalysis, type TrendIndicator } from './lib/trend'
+import { analyzeTrend, getEntryReadiness, getTrendIndicator, SCANNER_STRATEGIES, SETUP_META, type EntryReadiness, type ManualChartLevel, type RiskRewardBox, type ScannerStrategyId, type SetupSignal, type TrendAnalysis, type TrendIndicator } from './lib/trend'
 
 const FALLBACK_MARKETS: Market[] = [
   { symbol: 'BTCUSDT', price: 0, change: 0, turnover: 0 },
@@ -24,6 +23,12 @@ type DrawingMode = 'level' | 'risk' | null
 type ChartPoint = { price: number, time: number }
 type TrendSort = 'none' | 'asc' | 'desc'
 type StrategyFilterId = ScannerStrategyId
+
+function TrendMeter({ label, indicator, title }: { label: string, indicator?: TrendIndicator, title: string }) {
+  const strength = indicator?.strength ?? 0
+  const direction = indicator?.direction ?? 'flat'
+  return <span className={`trend-meter ${direction}`} title={title} aria-label={`${label}: ${strength} из 100`}><b>{strength}</b><i><span style={{ width: `${strength}%` }} /></i></span>
+}
 
 function baseAsset(symbol: string) {
   return symbol.replace('USDT', '')
@@ -55,7 +60,6 @@ export default function App() {
   const [marketsReady, setMarketsReady] = useState(false)
   const [marketTrends, setMarketTrends] = useState<Record<string, TrendIndicator>>({})
   const [trendSort, setTrendSort] = useState<TrendSort>('none')
-  const [setupStrengthSort, setSetupStrengthSort] = useState<TrendSort>('none')
   const [setupScanning, setSetupScanning] = useState(false)
   const [savedOpenSignals, setSavedOpenSignals] = useState<SavedSignal[]>([])
   const [accountSummary, setAccountSummary] = useState<AccountSummary>({ balance: STARTING_BALANCE_USDT, equity: STARTING_BALANCE_USDT, lockedMargin: 0, pnl: 0, closedTrades: 0 })
@@ -63,6 +67,7 @@ export default function App() {
   const [marketInfo, setMarketInfo] = useState<MarketInfoSignal[]>([])
   const [rsiDivergencesBySymbol, setRsiDivergencesBySymbol] = useState<Record<string, Array<DivergenceInfo & { id: string }>>>({})
   const [chartFocusTime, setChartFocusTime] = useState<number | null>(null)
+  const [entryReadinessBySymbol, setEntryReadinessBySymbol] = useState<Record<string, EntryReadiness>>({})
 
   useEffect(() => {
     void getMarkets()
@@ -81,6 +86,7 @@ export default function App() {
     const scanSetups = async () => {
       setSetupScanning(true)
       const trends: Record<string, TrendIndicator> = {}
+      const entryReadiness: Record<string, EntryReadiness> = {}
       let nextIndex = 0
       const scanOne = async () => {
         while (nextIndex < symbols.length) {
@@ -90,8 +96,13 @@ export default function App() {
             const candles = await Promise.all(ANALYSIS_TIMEFRAMES.map((item) => getCandles(currentSymbol, item, 120)))
             const analyses = candles.map((items, index) => analyzeTrend(items, ANALYSIS_TIMEFRAMES[index]))
             const trend = getTrendIndicator(analyses)
+            const readiness = getEntryReadiness(analyses)
             trends[currentSymbol] = trend
-            if (!disposed) setMarketTrends((previous) => ({ ...previous, [currentSymbol]: trend }))
+            entryReadiness[currentSymbol] = readiness
+            if (!disposed) {
+              setMarketTrends((previous) => ({ ...previous, [currentSymbol]: trend }))
+              setEntryReadinessBySymbol((previous) => ({ ...previous, [currentSymbol]: readiness }))
+            }
           } catch {
             // A single unavailable market must not interrupt the complete scan.
           }
@@ -101,6 +112,7 @@ export default function App() {
       await Promise.all(Array.from({ length: Math.min(SCAN_CONCURRENCY, symbols.length) }, () => scanOne()))
       if (!disposed) {
         setMarketTrends(trends)
+        setEntryReadinessBySymbol(entryReadiness)
         setSetupScanning(false)
       }
     }
@@ -178,7 +190,6 @@ export default function App() {
   }, [savedOpenSignals])
 
   const setupSymbols = useMemo(() => new Set(Object.keys(activeMarketSetups)), [activeMarketSetups])
-  const setupStrengths = useMemo(() => Object.fromEntries(savedOpenSignals.map((signal) => [signal.symbol, signal.signalStrength])) as Record<string, number | null>, [savedOpenSignals])
   const strategyCounts = useMemo(() => Object.fromEntries(SCANNER_STRATEGIES.map((strategy) => [
     strategy.id,
     savedOpenSignals.filter((signal) => strategy.setupTypes.includes(signal.setupType)).length,
@@ -196,9 +207,9 @@ export default function App() {
     () => {
       const filtered = filterMarketList(markets, search, setupSymbols, setupsOnly, strategySymbols)
       const trendSorted = trendSort === 'none' ? filtered : sortMarketsByTrend(filtered, trendStrengths, trendSort)
-      return (setupStrengthSort === 'none' ? trendSorted : sortMarketsBySetupStrength(trendSorted, setupStrengths, setupStrengthSort)).slice(0, MARKET_LIST_LIMIT)
+      return trendSorted.slice(0, MARKET_LIST_LIMIT)
     },
-    [markets, search, setupSymbols, setupsOnly, strategySymbols, setupStrengthSort, setupStrengths, trendSort, trendStrengths],
+    [markets, search, setupSymbols, setupsOnly, strategySymbols, trendSort, trendStrengths],
   )
 
   useEffect(() => {
@@ -436,14 +447,15 @@ export default function App() {
             </div>
           </section>
         </>}
-        <div className="list-label"><span>ПАРА</span><button className={`trend-sort ${trendSort !== 'none' ? 'active' : ''}`} onClick={() => { setTrendSort((current) => current === 'none' ? 'desc' : current === 'desc' ? 'asc' : 'none'); setSetupStrengthSort('none') }} aria-label="Сортировать по силе тренда">ТРЕНД <i>{trendSort === 'desc' ? '↓' : trendSort === 'asc' ? '↑' : '↕'}</i></button><button className={`strength-sort ${setupStrengthSort !== 'none' ? 'active' : ''}`} onClick={() => { setSetupStrengthSort((current) => current === 'none' ? 'desc' : current === 'desc' ? 'asc' : 'none'); setTrendSort('none') }} aria-label="Сортировать по силе сетапа">СИЛА <i>{setupStrengthSort === 'desc' ? '↓' : setupStrengthSort === 'asc' ? '↑' : '↕'}</i></button><span>ЦЕНА / 24Ч</span></div>
+        <div className="list-label"><span>ПАРА</span><button className={`trend-sort ${trendSort !== 'none' ? 'active' : ''}`} onClick={() => setTrendSort((current) => current === 'none' ? 'desc' : current === 'desc' ? 'asc' : 'none')} aria-label="Сортировать по силе тренда">ТРЕНД <i>{trendSort === 'desc' ? '↓' : trendSort === 'asc' ? '↑' : '↕'}</i></button><span>ОТКАТ</span><span>ВХОД</span><span>ЦЕНА / 24Ч</span></div>
         <div className="market-list">
           {visibleMarkets.map((market) => (
             <button className={`market-row ${market.symbol === symbol ? 'selected' : ''} ${activeMarketSetups[market.symbol]?.[0] ? `setup-${activeMarketSetups[market.symbol]![0].side}` : ''}`} key={market.symbol} onClick={() => setSymbol(market.symbol)}>
               <span className="coin-icon">{baseAsset(market.symbol).slice(0, 1)}</span>
               <span className="coin-name"><span className="market-symbol"><b>{baseAsset(market.symbol)}</b>{activeMarketSetups[market.symbol]?.map((setup) => <em key={`${setup.type}-${setup.side}`}>{`${SETUP_META[setup.type].shortName} ${setup.side.toUpperCase()}`}</em>)}</span><small>USDT · PERP</small></span>
               <span className={`market-trend ${marketTrends[market.symbol]?.direction ?? 'flat'}`} title="Сила тренда"><i style={{ width: `${marketTrends[market.symbol]?.strength ?? 0}%` }} /></span>
-              <SetupStrength score={setupStrengths[market.symbol]} />
+              <TrendMeter label="Откат" indicator={entryReadinessBySymbol[market.symbol]?.pullback} title="Сила контртрендового отката на 15m и 5m" />
+              <TrendMeter label="Вход" indicator={entryReadinessBySymbol[market.symbol]?.entry} title="Готовность ко входу: сильный 4h/1h контекст, 15m откат и 5m возврат по тренду" />
               <span className="market-values"><b>{market.price ? formatPrice(market.price, market.pricePrecision) : '—'}</b><small className={market.change >= 0 ? 'positive' : 'negative'}>{market.change >= 0 ? '+' : ''}{market.change.toFixed(2)}%</small></span>
             </button>
           ))}

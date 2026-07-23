@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from './bybit'
-import { analyzeTrend, calculateAtr, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, countPreBreakoutLevelTouches, findHourlyPullback, getOverallTrend, getScannerStrategy, getTrendIndicator, hasEnoughBreakoutLevelTouches, selectPrimaryRetestLevel, type TrendAnalysis } from './trend'
+import { analyzeTrend, calculateAtr, calculateBreakoutRetestPlan, calculateDivergenceReversalPlan, calculateEma, calculateFalseBreakoutPlan, calculateLevelBreakoutPlan, calculateStop, calculateTradePlan, countPreBreakoutLevelTouches, findHourlyPullback, getEntryReadiness, getOverallTrend, getScannerStrategy, getTrendIndicator, hasEnoughBreakoutLevelTouches, selectPrimaryRetestLevel, type TrendAnalysis } from './trend'
 
 const makeCandles = (step: number): Candle[] => Array.from({ length: 100 }, (_, index) => {
   const close = 100 + step * index + Math.sin(index / 3) * 0.08
@@ -289,6 +289,24 @@ describe('trend analysis', () => {
     expect(getOverallTrend(mixed)).toBe('flat')
     expect(getTrendIndicator(mixed)).toEqual({ direction: 'bullish', strength: 51 })
     expect(getTrendIndicator(mixed.map((item) => ({ ...item, direction: 'flat' as const })))).toEqual({ direction: 'flat', strength: 51 })
+  })
+
+  it('measures the lower-timeframe counter-trend pullback independently from entry readiness', () => {
+    const analyses = [analysis('4h', 'bullish', 100), analysis('1h', 'bullish', 100), analysis('15m', 'bearish', 80), analysis('5m', 'bearish', 90)]
+
+    expect(getEntryReadiness(analyses)).toEqual({ pullback: { direction: 'bearish', strength: 83 }, entry: { direction: 'flat', strength: 0 } })
+  })
+
+  it('marks entry readiness only after 5m reclaims a strong 4h/1h trend', () => {
+    const analyses = [analysis('4h', 'bullish', 90), analysis('1h', 'bullish', 80), analysis('15m', 'bearish', 80), analysis('5m', 'bullish', 70)]
+
+    expect(getEntryReadiness(analyses)).toEqual({ pullback: { direction: 'bearish', strength: 56 }, entry: { direction: 'bullish', strength: 77 } })
+  })
+
+  it('does not mark entry readiness without a strong 4h and 1h context', () => {
+    const analyses = [analysis('4h', 'bearish', 64), analysis('1h', 'bearish', 100), analysis('15m', 'bullish', 80), analysis('5m', 'bearish', 70)]
+
+    expect(getEntryReadiness(analyses)).toEqual({ pullback: { direction: 'bullish', strength: 56 }, entry: { direction: 'flat', strength: 0 } })
   })
 
   it('puts a long stop below the last confirmed swing low with an ATR buffer', () => {

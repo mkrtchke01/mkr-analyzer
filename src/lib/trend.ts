@@ -108,6 +108,11 @@ export type TrendIndicator = {
   strength: number
 }
 
+export type EntryReadiness = {
+  pullback: TrendIndicator
+  entry: TrendIndicator
+}
+
 export type RiskRewardBox = {
   id: string
   time: number
@@ -122,6 +127,7 @@ const SLOW_EMA = 55
 const PERIOD = 14
 const CONTEXT_MIN_STRENGTH = 35
 const STRONG_OPPOSING_STRENGTH = 55
+const ENTRY_CONTEXT_MIN_STRENGTH = 65
 const BREAKOUT_RETEST_STOP_BUFFER_ATR = 0.4
 const BREAKOUT_RETEST_MAX_ENTRY_DISTANCE_ATR = 0.75
 const BREAKOUT_RETEST_MAX_RETEST_AGE_CANDLES = 1
@@ -293,6 +299,41 @@ export function getTrendIndicator(analyses: TrendAnalysis[]): TrendIndicator {
 
   if (directionScore === 0) return { direction: 'flat', strength }
   return { direction: directionScore > 0 ? 'bullish' : 'bearish', strength }
+}
+
+/** Separates a lower-timeframe pullback from a confirmed return toward the 4h/1h trend. */
+export function getEntryReadiness(analyses: TrendAnalysis[]): EntryReadiness {
+  const fourHour = analyses.find((analysis) => analysis.timeframe === '4h')
+  const oneHour = analyses.find((analysis) => analysis.timeframe === '1h')
+  const fifteenMinute = analyses.find((analysis) => analysis.timeframe === '15m')
+  const fiveMinute = analyses.find((analysis) => analysis.timeframe === '5m')
+  const empty: EntryReadiness = { pullback: { direction: 'flat', strength: 0 }, entry: { direction: 'flat', strength: 0 } }
+  if (!fourHour || !oneHour || !fifteenMinute || !fiveMinute) return empty
+  if (fourHour.direction === 'flat' || fourHour.direction !== oneHour.direction) return empty
+
+  const trendDirection = fourHour.direction
+  const isCounterTrend = (analysis: TrendAnalysis) => analysis.direction !== 'flat' && analysis.direction !== trendDirection
+  const pullbackStrength = Math.round(
+    (isCounterTrend(fifteenMinute) ? fifteenMinute.strength * 0.7 : 0)
+    + (isCounterTrend(fiveMinute) ? fiveMinute.strength * 0.3 : 0),
+  )
+  const pullback: TrendIndicator = {
+    direction: pullbackStrength > 0 ? (trendDirection === 'bullish' ? 'bearish' : 'bullish') : 'flat',
+    strength: pullbackStrength,
+  }
+
+  const hasStrongContext = fourHour.strength >= ENTRY_CONTEXT_MIN_STRENGTH && oneHour.strength >= ENTRY_CONTEXT_MIN_STRENGTH
+  const hasFifteenMinutePullback = isCounterTrend(fifteenMinute)
+  const hasFiveMinuteReclaim = fiveMinute.direction === trendDirection
+  if (!hasStrongContext || !hasFifteenMinutePullback || !hasFiveMinuteReclaim) return { pullback, entry: { direction: 'flat', strength: 0 } }
+
+  return {
+    pullback,
+    entry: {
+      direction: trendDirection,
+      strength: Math.round(fifteenMinute.strength * 0.7 + fiveMinute.strength * 0.3),
+    },
+  }
 }
 
 export function getSetupSignal(analyses: TrendAnalysis[], candles: Candle[]): SetupSignal | undefined {
