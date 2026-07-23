@@ -72,7 +72,7 @@ export default function App() {
 
   const resizeScreener = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (window.innerWidth <= 800) return
-    const minimumScreenerWidth = 540
+    const minimumScreenerWidth = 680
     const minimumWorkspaceWidth = 480
     const setWidthFromPointer = (clientX: number) => {
       const width = Math.round(window.innerWidth - clientX)

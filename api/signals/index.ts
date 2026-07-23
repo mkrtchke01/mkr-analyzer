@@ -4,6 +4,29 @@ import { calculateSignalStrength } from '../../src/lib/signalStrength.js'
 import { calculateAccountSummaryFromPnl } from '../_lib/account.js'
 import { calculateBybitFeeUsd, calculateNetPnlUsd } from '../_lib/tradeFees.js'
 
+const CLOSED_HISTORY_RESET_KEY = '2026-07-23-reset-closed-history'
+const closedSignalFilter = 'or=(status.in.(tp3,stop,expired,ambiguous),and(status.eq.tp1,tp2_price.is.null),and(status.eq.tp2,tp3_price.is.null))'
+let closedHistoryResetPromise: Promise<void> | undefined
+
+async function performClosedHistoryReset() {
+  const completedRuns = await supabaseRequest<Array<{ id: string }>>(`/rest/v1/mkr_scanner_runs?select=id&details->>maintenance=eq.${CLOSED_HISTORY_RESET_KEY}&limit=1`)
+  if (completedRuns.length) return
+
+  const signals = await supabaseRequest<Array<{ snapshot_path: string | null }>>(`/rest/v1/mkr_signals?select=snapshot_path&${closedSignalFilter}`)
+  await Promise.all(signals.filter((signal) => signal.snapshot_path).map((signal) => supabaseRequest(`/storage/v1/object/signal-snapshots/${encodeURIComponent(signal.snapshot_path!)}`, { method: 'DELETE' })))
+  await supabaseRequest(`/rest/v1/mkr_signals?${closedSignalFilter}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } })
+  await supabaseRequest('/rest/v1/mkr_scanner_runs', {
+    method: 'POST',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ status: 'success', finished_at: new Date().toISOString(), details: { maintenance: CLOSED_HISTORY_RESET_KEY } }),
+  })
+}
+
+export function resetClosedHistoryOnce() {
+  closedHistoryResetPromise ??= performClosedHistoryReset()
+  return closedHistoryResetPromise
+}
+
 function signalStrengthFromSnapshot(record: any): number | null {
   const storedScore = Number(record.plan_snapshot?.signalStrength?.score)
   if (Number.isInteger(storedScore) && storedScore >= 1 && storedScore <= 10) return storedScore
@@ -28,6 +51,7 @@ export default async function handler(request: any, response: any) {
   if (request.method !== 'GET') return response.status(405).json({ error: 'Method not allowed' })
 
   try {
+    await resetClosedHistoryOnce()
     if (request.query?.state === 'statistics') {
       const records = await supabaseRequest<Array<any>>('/rest/v1/mkr_signals?select=setup_type,status,tp2_price,tp3_price,outcome_r,entry_price,initial_stop_price,last_price,plan_snapshot&status=in.(active,tp1,tp2,tp3,stop,expired,ambiguous)&limit=1000')
       const signals: StrategyStatsSignal[] = records.map((record) => ({
