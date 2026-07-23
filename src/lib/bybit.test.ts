@@ -158,6 +158,7 @@ describe('Bybit market data conversion', () => {
 
     await getCandles('BTCUSDT', '5m')
 
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/market/kline?')
     expect(String(fetchMock.mock.calls[0][0])).toContain('limit=1000')
     fetchMock.mockRestore()
   })

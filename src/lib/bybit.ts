@@ -200,7 +200,10 @@ export async function getMarkets(): Promise<Market[]> {
 
 export async function getCandles(symbol: string, timeframe: Timeframe, limit = 1000): Promise<Candle[]> {
   const params = new URLSearchParams({ category: 'linear', symbol, interval: timeframeToBybitInterval(timeframe), limit: String(limit) })
-  const response = await fetch(`${apiBase}/kline?${params}`)
+  // Some privacy/ad-blocking extensions block direct requests to api.bybit.com.
+  // Route chart history through our same-origin serverless endpoint so the chart
+  // remains usable while the browser continues to receive live WebSocket ticks.
+  const response = await fetch(`/api/market/kline?${params}`)
   if (!response.ok) throw new Error(`Не удалось загрузить историю графика (HTTP ${response.status})`)
   const payload = (await response.json()) as KlineResponse
   return klineRowsToCandles(payload.result?.list ?? [])
