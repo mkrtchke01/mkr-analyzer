@@ -5,7 +5,7 @@ import { calculateRsi, calculateRsiSma, type RsiPoint } from '../lib/rsi'
 import type { DivergenceInfo } from '../lib/marketInfo'
 import { SETUP_META, type FibonacciDrawing, type ManualChartLevel, type RiskRewardBox, type TradePlan } from '../lib/trend'
 import { ChartLevelsPrimitive, timeToChartCoordinate, type ChartLevelSelection } from './ChartLevels'
-import { distanceToSegment, extrapolateChartTime, isNearPoint } from './DrawingEditor'
+import { distanceToSegment, extrapolateChartTime, isDrawingMenuTarget, isNearPoint } from './DrawingEditor'
 import { fibonacciLevels } from './Fibonacci'
 import { MeasurementPrimitive, type ChartMeasurement } from './Measurement'
 import { createRiskRewardBox, RiskRewardPrimitive } from './RiskReward'
@@ -399,6 +399,7 @@ export default function PriceChart({ symbol, timeframe, priceTickSize, pricePrec
       return null
     }
     const onPointerDown = (event: PointerEvent) => {
+      if (isDrawingMenuTarget(event.target)) return
       if (event.button !== 0 || event.shiftKey) return
       const point = pointFromEvent(event)
       if (!point) return

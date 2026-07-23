@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { distanceToSegment, extrapolateChartTime, isNearPoint } from './DrawingEditor'
+import { distanceToSegment, extrapolateChartTime, isDrawingMenuTarget, isNearPoint } from './DrawingEditor'
 
 describe('drawing editor geometry', () => {
   it('finds the distance from a line segment and its endpoints', () => {
@@ -11,5 +11,10 @@ describe('drawing editor geometry', () => {
   it('extrapolates a timestamp when a pointer is past the final candle', () => {
     expect(extrapolateChartTime(null, 140, { time: 1_000, x: 100 }, { time: 900, x: 80 })).toBe(1_200)
     expect(extrapolateChartTime(950, 140, { time: 1_000, x: 100 }, { time: 900, x: 80 })).toBe(950)
+  })
+
+  it('keeps chart interactions away from the drawing action menu', () => {
+    expect(isDrawingMenuTarget({ closest: (selector: string) => selector === '.drawing-menu' ? {} : null } as unknown as EventTarget)).toBe(true)
+    expect(isDrawingMenuTarget(null)).toBe(false)
   })
 })

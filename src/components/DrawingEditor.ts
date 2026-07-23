@@ -13,6 +13,14 @@ export function isNearPoint(point: ScreenPoint, target: ScreenPoint, radius = 10
   return Math.hypot(point.x - target.x, point.y - target.y) <= radius
 }
 
+export function isDrawingMenuTarget(target: EventTarget | null) {
+  return typeof target === 'object'
+    && target !== null
+    && 'closest' in target
+    && typeof (target as { closest?: unknown }).closest === 'function'
+    && Boolean((target as { closest: (selector: string) => unknown }).closest('.drawing-menu'))
+}
+
 export function extrapolateChartTime(
   chartTime: number | null,
   coordinate: number,
