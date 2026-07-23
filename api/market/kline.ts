@@ -1,4 +1,7 @@
-const BYBIT_KLINE_URL = 'https://api.bybit.com/v5/market/kline'
+// Bybit officially serves the same mainnet V5 API from api.bytick.com. The
+// api.bybit.com hostname is unavailable from the Vercel runtime, while this
+// alternate official hostname is reachable there.
+const BYBIT_KLINE_URL = 'https://api.bytick.com/v5/market/kline'
 const ALLOWED_INTERVALS = new Set(['5', '15', '60', '240', 'D'])
 
 type Query = Record<string, string | string[] | undefined>
